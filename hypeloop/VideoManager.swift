@@ -20,6 +20,8 @@ class VideoManager: ObservableObject {
     
     @Published private(set) var videoStack: [URL] = []
     @Published private(set) var currentPlayer: AVPlayer
+    @Published var isShowingShareSheet = false
+    @Published var itemToShare: URL?
     
     private var preloadedItem: AVPlayerItem?
     private var preloadedAsset: AVAsset?
@@ -108,8 +110,14 @@ class VideoManager: ObservableObject {
     }
     
     func handleUpSwipe() {
-        // Up swipe indicates "share" or "send" action
-        // For now, just move to next video
+        // Get the current video URL
+        if let currentItem = currentPlayer.currentItem,
+           let urlAsset = currentItem.asset as? AVURLAsset {
+            itemToShare = urlAsset.url
+            isShowingShareSheet = true
+        }
+        
+        // Move to next video after sharing
         moveToNextVideo()
     }
     

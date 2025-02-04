@@ -24,6 +24,18 @@ struct AutoplayVideoPlayer: UIViewControllerRepresentable {
     }
 }
 
+// ShareSheet wrapper for UIActivityViewController
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        return controller
+    }
+    
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
 struct SwipeableVideoPlayer: View {
     @StateObject private var videoManager = VideoManager()
     @GestureState private var dragOffset: CGSize = .zero
@@ -157,6 +169,11 @@ struct SwipeableVideoPlayer: View {
             .onDisappear {
                 videoManager.currentPlayer.pause()
             }
+            .sheet(isPresented: $videoManager.isShowingShareSheet) {
+                if let url = videoManager.itemToShare {
+                    ShareSheet(items: [url])
+                }
+            }
         }
     }
     
@@ -241,16 +258,17 @@ struct SwipeableVideoPlayer: View {
         // Horizontal swipes
         else if abs(dragWidth) > dragThreshold && abs(dragWidth) > abs(dragHeight) {
             let direction: CGFloat = dragWidth > 0 ? 1 : -1
-            withAnimation(.easeOut(duration: 0.2)) {
-                offset.width = direction * 500
-                offset.height = gesture.translation.height
-            }
             
-            // Show appropriate thumb indicator
+            // Show appropriate thumb indicator immediately
             if dragWidth > 0 {
                 showThumbsUp = true
             } else {
                 showThumbsDown = true
+            }
+            
+            withAnimation(.easeOut(duration: 0.2)) {
+                offset.width = direction * 500
+                offset.height = gesture.translation.height
             }
             
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
