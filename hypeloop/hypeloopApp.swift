@@ -19,8 +19,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 @main
 struct hypeloopApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
-    // Initially false – user is not logged in
-    @State private var isLoggedIn = false
+    // Initially set based on debug configuration
+    @State private var isLoggedIn = Config.skipAuthentication
 
     var body: some Scene {
         WindowGroup {
