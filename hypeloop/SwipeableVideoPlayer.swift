@@ -32,7 +32,9 @@ struct SwipeableVideoPlayer: View {
     @State private var showThumbsUp = false
     @State private var showThumbsDown = false
     @State private var showPaperAirplane = false
+    @State private var showSaveIcon = false
     @State private var paperAirplaneOffset: CGFloat = 0
+    @State private var saveIconOffset: CGFloat = 0
     
     // Constants for card animations
     private let swipeThreshold: CGFloat = 100
@@ -87,6 +89,17 @@ struct SwipeableVideoPlayer: View {
                                             .offset(y: paperAirplaneOffset)
                                             .animation(.spring(response: 0.3).speed(0.7), value: showPaperAirplane)
                                             .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: paperAirplaneOffset)
+                                        
+                                        // Save icon overlay
+                                        Image(systemName: "square.and.arrow.down.fill")
+                                            .resizable()
+                                            .frame(width: 100, height: 100)
+                                            .foregroundColor(.purple)
+                                            .opacity(showSaveIcon ? 0.8 : 0)
+                                            .scaleEffect(showSaveIcon ? 1 : 0.5)
+                                            .offset(y: saveIconOffset)
+                                            .animation(.spring(response: 0.3).speed(0.7), value: showSaveIcon)
+                                            .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: saveIconOffset)
                                     }
                                 )
                         }
@@ -161,33 +174,65 @@ struct SwipeableVideoPlayer: View {
         let dragHeight = gesture.translation.height
         hasStartedPreloading = false
         
-        // Check for vertical swipe first
-        if dragHeight < -dragThreshold && abs(dragHeight) > abs(dragWidth) {
-            // Swipe up
-            withAnimation(.easeOut(duration: 0.2)) {
-                offset.height = -500
-            }
-            
-            showPaperAirplane = true
-            
-            // Initial fast upward motion
-            withAnimation(.easeOut(duration: 0.5)) {
-                paperAirplaneOffset = -200
-            }
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                videoManager.handleUpSwipe()
-                withAnimation(.none) {
-                    offset = .zero
-                    // Continue flying upward while fading out
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        withAnimation(.easeOut(duration: 0.8)) {
-                            showPaperAirplane = false
-                            paperAirplaneOffset -= 150 // Additional upward motion while fading
+        // Check for vertical swipes first
+        if abs(dragHeight) > dragThreshold && abs(dragHeight) > abs(dragWidth) {
+            if dragHeight < 0 {
+                // Swipe up
+                withAnimation(.easeOut(duration: 0.2)) {
+                    offset.height = -500
+                }
+                
+                showPaperAirplane = true
+                
+                // Initial fast upward motion
+                withAnimation(.easeOut(duration: 0.5)) {
+                    paperAirplaneOffset = -200
+                }
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    videoManager.handleUpSwipe()
+                    withAnimation(.none) {
+                        offset = .zero
+                        // Continue flying upward while fading out
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation(.easeOut(duration: 0.8)) {
+                                showPaperAirplane = false
+                                paperAirplaneOffset -= 150 // Additional upward motion while fading
+                            }
+                            // Reset position after completely hidden
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                                paperAirplaneOffset = 0
+                            }
                         }
-                        // Reset position after completely hidden
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                            paperAirplaneOffset = 0
+                    }
+                }
+            } else {
+                // Swipe down
+                withAnimation(.easeOut(duration: 0.2)) {
+                    offset.height = 500
+                }
+                
+                showSaveIcon = true
+                
+                // Initial fast downward motion
+                withAnimation(.easeOut(duration: 0.5)) {
+                    saveIconOffset = 200
+                }
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    videoManager.handleDownSwipe()
+                    withAnimation(.none) {
+                        offset = .zero
+                        // Continue moving downward while fading out
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation(.easeOut(duration: 0.8)) {
+                                showSaveIcon = false
+                                saveIconOffset += 150 // Additional downward motion while fading
+                            }
+                            // Reset position after completely hidden
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                                saveIconOffset = 0
+                            }
                         }
                     }
                 }

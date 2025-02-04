@@ -113,6 +113,12 @@ class VideoManager: ObservableObject {
         moveToNextVideo()
     }
     
+    func handleDownSwipe() {
+        // Down swipe indicates "save" action
+        // For now, just move to next video
+        moveToNextVideo()
+    }
+    
     deinit {
         cleanupCurrentVideo()
     }
