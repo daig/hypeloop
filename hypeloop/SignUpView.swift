@@ -5,13 +5,13 @@ struct SignUpView: View {
     @Binding var isLoggedIn: Bool
     @Environment(\.dismiss) private var dismiss
     @StateObject private var authService = AuthService.shared
-    
+
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var confirmPassword: String = ""
     @State private var errorMessage: String = ""
     @State private var isLoading = false
-    
+
     private func handleAuthError(_ error: Error) -> String {
         let nsError = error as NSError
         print("Debug - Error code: \(nsError.code), Domain: \(nsError.domain)")
@@ -34,7 +34,7 @@ struct SignUpView: View {
             return "An error occurred. Please try again."
         }
     }
-    
+
     var body: some View {
         ZStack {
             // Full-page background image using hypeloopLogo
@@ -56,6 +56,7 @@ struct SignUpView: View {
                     .foregroundColor(.white)
                     .padding(.top, 50)
                 
+                // Email field now tagged as username so that saved credentials associate correctly.
                 TextField("Email", text: $email)
                     .textFieldStyle(PlainTextFieldStyle())
                     .padding()
@@ -63,11 +64,12 @@ struct SignUpView: View {
                     .cornerRadius(8)
                     .padding(.horizontal)
                     .foregroundColor(.white)
-                    .textContentType(.emailAddress)
+                    .textContentType(.username)
                     .autocapitalization(.none)
                     .keyboardType(.emailAddress)
                     .textInputAutocapitalization(.never)
                 
+                // Password field marked as newPassword to trigger strong password suggestions.
                 SecureField("Password", text: $password)
                     .textFieldStyle(PlainTextFieldStyle())
                     .padding()
@@ -78,6 +80,7 @@ struct SignUpView: View {
                     .textContentType(.newPassword)
                     .autocapitalization(.none)
                 
+                // Confirm password field no longer has a newPassword hint to avoid autofill conflict.
                 SecureField("Confirm Password", text: $confirmPassword)
                     .textFieldStyle(PlainTextFieldStyle())
                     .padding()
@@ -85,7 +88,7 @@ struct SignUpView: View {
                     .cornerRadius(8)
                     .padding(.horizontal)
                     .foregroundColor(.white)
-                    .textContentType(.newPassword)
+                    .textContentType(.none)
                     .autocapitalization(.none)
                 
                 if !errorMessage.isEmpty {
@@ -155,4 +158,4 @@ struct SignUpView: View {
 
 #Preview {
     SignUpView(isLoggedIn: .constant(false))
-} 
+}
