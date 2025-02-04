@@ -107,6 +107,12 @@ class VideoManager: ObservableObject {
         moveToNextVideo()
     }
     
+    func handleUpSwipe() {
+        // Up swipe indicates "share" or "send" action
+        // For now, just move to next video
+        moveToNextVideo()
+    }
+    
     deinit {
         cleanupCurrentVideo()
     }

@@ -31,6 +31,8 @@ struct SwipeableVideoPlayer: View {
     @State private var hasStartedPreloading = false
     @State private var showThumbsUp = false
     @State private var showThumbsDown = false
+    @State private var showPaperAirplane = false
+    @State private var paperAirplaneOffset: CGFloat = 0
     
     // Constants for card animations
     private let swipeThreshold: CGFloat = 100
@@ -73,6 +75,18 @@ struct SwipeableVideoPlayer: View {
                                             .opacity(showThumbsDown ? 0.8 : 0)
                                             .scaleEffect(showThumbsDown ? 1 : 0.5)
                                             .animation(.spring(response: 0.3), value: showThumbsDown)
+                                        
+                                        // Paper airplane overlay
+                                        Image(systemName: "paperplane.fill")
+                                            .resizable()
+                                            .frame(width: 100, height: 100)
+                                            .foregroundColor(.blue)
+                                            .opacity(showPaperAirplane ? 0.8 : 0)
+                                            .scaleEffect(showPaperAirplane ? 1 : 0.5)
+                                            .rotationEffect(.degrees(-45))
+                                            .offset(y: paperAirplaneOffset)
+                                            .animation(.spring(response: 0.3).speed(0.7), value: showPaperAirplane)
+                                            .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: paperAirplaneOffset)
                                     }
                                 )
                         }
@@ -144,9 +158,43 @@ struct SwipeableVideoPlayer: View {
     private func onDragEnded(_ gesture: DragGesture.Value) {
         let dragThreshold = swipeThreshold
         let dragWidth = gesture.translation.width
+        let dragHeight = gesture.translation.height
         hasStartedPreloading = false
         
-        if abs(dragWidth) > dragThreshold {
+        // Check for vertical swipe first
+        if dragHeight < -dragThreshold && abs(dragHeight) > abs(dragWidth) {
+            // Swipe up
+            withAnimation(.easeOut(duration: 0.2)) {
+                offset.height = -500
+            }
+            
+            showPaperAirplane = true
+            
+            // Initial fast upward motion
+            withAnimation(.easeOut(duration: 0.5)) {
+                paperAirplaneOffset = -200
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                videoManager.handleUpSwipe()
+                withAnimation(.none) {
+                    offset = .zero
+                    // Continue flying upward while fading out
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        withAnimation(.easeOut(duration: 0.8)) {
+                            showPaperAirplane = false
+                            paperAirplaneOffset -= 150 // Additional upward motion while fading
+                        }
+                        // Reset position after completely hidden
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                            paperAirplaneOffset = 0
+                        }
+                    }
+                }
+            }
+        }
+        // Horizontal swipes
+        else if abs(dragWidth) > dragThreshold && abs(dragWidth) > abs(dragHeight) {
             let direction: CGFloat = dragWidth > 0 ? 1 : -1
             withAnimation(.easeOut(duration: 0.2)) {
                 offset.width = direction * 500
