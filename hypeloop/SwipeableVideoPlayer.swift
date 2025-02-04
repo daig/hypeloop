@@ -70,38 +70,6 @@ struct SwipeableVideoPlayer: View {
                             // Video player
                             AutoplayVideoPlayer(player: videoManager.currentPlayer)
                                 .clipShape(RoundedRectangle(cornerRadius: 20))
-                                .overlay(
-                                    ZStack {
-                                        // Thumbs up overlay
-                                        Image(systemName: "hand.thumbsup.fill")
-                                            .resizable()
-                                            .frame(width: 100, height: 100)
-                                            .foregroundColor(.green)
-                                            .opacity(showThumbsUp ? 0.8 : 0)
-                                            .scaleEffect(showThumbsUp ? 1 : 0.5)
-                                            .animation(.spring(response: 0.3), value: showThumbsUp)
-                                        
-                                        // Thumbs down overlay
-                                        Image(systemName: "hand.thumbsdown.fill")
-                                            .resizable()
-                                            .frame(width: 100, height: 100)
-                                            .foregroundColor(.red)
-                                            .opacity(showThumbsDown ? 0.8 : 0)
-                                            .scaleEffect(showThumbsDown ? 1 : 0.5)
-                                            .animation(.spring(response: 0.3), value: showThumbsDown)
-                                        
-                                        // Save icon overlay
-                                        Image(systemName: "square.and.arrow.down.fill")
-                                            .resizable()
-                                            .frame(width: 100, height: 100)
-                                            .foregroundColor(.purple)
-                                            .opacity(showSaveIcon ? 0.8 : 0)
-                                            .scaleEffect(showSaveIcon ? 1 : 0.5)
-                                            .offset(y: saveIconOffset)
-                                            .animation(.spring(response: 0.3).speed(0.7), value: showSaveIcon)
-                                            .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: saveIconOffset)
-                                    }
-                                )
                         }
                         .frame(width: geometry.size.width - cardSpacing * 2, height: geometry.size.height - cardSpacing * 2)
                         .offset(x: offset.width + dragOffset.width, y: offset.height + dragOffset.height)
@@ -149,7 +117,39 @@ struct SwipeableVideoPlayer: View {
                     .offset(y: paperAirplaneOffset)
                     .animation(.spring(response: 0.3).speed(0.7), value: showPaperAirplane)
                     .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: paperAirplaneOffset)
-                    .zIndex(3) // Ensure it's above the cards
+                    .zIndex(3)
+
+                // Thumbs up overlay
+                Image(systemName: "hand.thumbsup.fill")
+                    .resizable()
+                    .frame(width: 100, height: 100)
+                    .foregroundColor(.green)
+                    .opacity(showThumbsUp ? 0.8 : 0)
+                    .scaleEffect(showThumbsUp ? 1 : 0.5)
+                    .animation(.spring(response: 0.3), value: showThumbsUp)
+                    .zIndex(3)
+                
+                // Thumbs down overlay
+                Image(systemName: "hand.thumbsdown.fill")
+                    .resizable()
+                    .frame(width: 100, height: 100)
+                    .foregroundColor(.red)
+                    .opacity(showThumbsDown ? 0.8 : 0)
+                    .scaleEffect(showThumbsDown ? 1 : 0.5)
+                    .animation(.spring(response: 0.3), value: showThumbsDown)
+                    .zIndex(3)
+                
+                // Save icon overlay
+                Image(systemName: "square.and.arrow.down.fill")
+                    .resizable()
+                    .frame(width: 100, height: 100)
+                    .foregroundColor(.purple)
+                    .opacity(showSaveIcon ? 0.8 : 0)
+                    .scaleEffect(showSaveIcon ? 1 : 0.5)
+                    .offset(y: saveIconOffset)
+                    .animation(.spring(response: 0.3).speed(0.7), value: showSaveIcon)
+                    .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: saveIconOffset)
+                    .zIndex(3)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onAppear {
@@ -213,33 +213,32 @@ struct SwipeableVideoPlayer: View {
                     }
                 }
             } else {
-                // Swipe down
-                withAnimation(.easeOut(duration: 0.2)) {
-                    offset.height = 500
-                }
-                
+                // Swipe down - show save icon first
                 showSaveIcon = true
+                saveIconOffset = 0 // Reset position
                 
-                // Initial fast downward motion
-                withAnimation(.easeOut(duration: 0.5)) {
+                // Animate card and save icon together
+                withAnimation(.easeOut(duration: 0.3)) {
+                    offset.height = 500
                     saveIconOffset = 200
                 }
                 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     videoManager.handleDownSwipe()
+                    
+                    // Reset card position
                     withAnimation(.none) {
                         offset = .zero
-                        // Continue moving downward while fading out
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            withAnimation(.easeOut(duration: 0.8)) {
-                                showSaveIcon = false
-                                saveIconOffset += 150 // Additional downward motion while fading
-                            }
-                            // Reset position after completely hidden
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                                saveIconOffset = 0
-                            }
-                        }
+                    }
+                    
+                    // Fade out save icon
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        showSaveIcon = false
+                    }
+                    
+                    // Reset save icon position without animation
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        saveIconOffset = 0
                     }
                 }
             }
@@ -249,30 +248,34 @@ struct SwipeableVideoPlayer: View {
             let direction: CGFloat = dragWidth > 0 ? 1 : -1
             
             // Show appropriate thumb indicator immediately
-            if dragWidth > 0 {
+            if direction > 0 {
                 showThumbsUp = true
             } else {
                 showThumbsDown = true
             }
             
-            withAnimation(.easeOut(duration: 0.2)) {
+            // Animate card
+            withAnimation(.easeOut(duration: 0.3)) {
                 offset.width = direction * 500
                 offset.height = gesture.translation.height
             }
             
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                if dragWidth > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                if direction > 0 {
                     videoManager.handleRightSwipe()
                 } else {
                     videoManager.handleLeftSwipe()
                 }
+                
+                // Reset card position
                 withAnimation(.none) {
                     offset = .zero
-                    // Hide the indicators after a short delay
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        showThumbsUp = false
-                        showThumbsDown = false
-                    }
+                }
+                
+                // Fade out indicators
+                withAnimation(.easeOut(duration: 0.2)) {
+                    showThumbsUp = false
+                    showThumbsDown = false
                 }
             }
         } else {
