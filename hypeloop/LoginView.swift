@@ -11,6 +11,7 @@ import FirebaseAuth
 struct LoginView: View {
     @Binding var isLoggedIn: Bool
     @StateObject private var authService = AuthService.shared
+    @State private var showSignUp = false
     
     @State private var email: String = ""
     @State private var password: String = ""
@@ -47,89 +48,101 @@ struct LoginView: View {
     }
     
     var body: some View {
-        ZStack {
-            // Full-page background image using hypeloopLogo
-            GeometryReader { geometry in
-                Image("hypeloopLogo")
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: geometry.size.width * 1.2, height: geometry.size.height)
-                    .clipped()
-                    .position(x: geometry.size.width/2, y: geometry.size.height/2)
-                    .ignoresSafeArea()
-            }
-            .ignoresSafeArea()
+        NavigationStack {
+            ZStack {
+                // Full-page background image using hypeloopLogo
+                GeometryReader { geometry in
+                    Image("hypeloopLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geometry.size.width * 1.2, height: geometry.size.height)
+                        .clipped()
+                        .position(x: geometry.size.width/2, y: geometry.size.height/2)
+                        .ignoresSafeArea()
+                }
+                .ignoresSafeArea()
 
-            // Login form overlay
-            VStack(spacing: 20) {
-                Spacer()
-                
-                TextField("Email", text: $email)
-                    .textFieldStyle(PlainTextFieldStyle())
-                    .padding()
-                    .background(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
-                    .cornerRadius(8)
-                    .padding(.horizontal)
-                    .foregroundColor(.white)
-                    .textContentType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                
-                SecureField("Password", text: $password)
-                    .textFieldStyle(PlainTextFieldStyle())
-                    .padding()
-                    .background(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
-                    .cornerRadius(8)
-                    .padding(.horizontal)
-                    .foregroundColor(.white)
-                
-                if !errorMessage.isEmpty {
-                    Text(errorMessage)
-                        .foregroundColor(.red)
+                // Login form overlay
+                VStack(spacing: 20) {
+                    Spacer()
+                    
+                    TextField("Email", text: $email)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .padding()
+                        .background(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
+                        .cornerRadius(8)
                         .padding(.horizontal)
-                        .multilineTextAlignment(.center)
-                }
-                
-                Button(action: {
-                    Task {
-                        isLoading = true
-                        do {
-                            try await authService.signIn(email: email, password: password)
-                            isLoggedIn = true
-                        } catch {
-                            errorMessage = handleAuthError(error)
+                        .foregroundColor(.white)
+                        .textContentType(.username)
+                        .autocapitalization(.none)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                    
+                    SecureField("Password", text: $password)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .padding()
+                        .background(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
+                        .cornerRadius(8)
+                        .padding(.horizontal)
+                        .foregroundColor(.white)
+                        .textContentType(.password)
+                        .autocapitalization(.none)
+                    
+                    if !errorMessage.isEmpty {
+                        Text(errorMessage)
+                            .foregroundColor(.red)
+                            .padding(.horizontal)
+                            .multilineTextAlignment(.center)
+                    }
+                    
+                    Button(action: {
+                        Task {
+                            isLoading = true
+                            do {
+                                try await authService.signIn(email: email, password: password)
+                                isLoggedIn = true
+                            } catch {
+                                errorMessage = handleAuthError(error)
+                            }
+                            isLoading = false
                         }
-                        isLoading = false
+                    }) {
+                        if isLoading {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                        } else {
+                            Text("Login")
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                        }
                     }
-                }) {
-                    if isLoading {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                    } else {
-                        Text("Login")
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                    }
-                }
-                .background(
-                    LinearGradient(
-                        gradient: Gradient(colors: [
-                            Color(red: 0.2, green: 0.2, blue: 0.3),
-                            Color(red: 0.3, green: 0.2, blue: 0.4)
-                        ]),
-                        startPoint: .leading,
-                        endPoint: .trailing
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color(red: 0.2, green: 0.2, blue: 0.3),
+                                Color(red: 0.3, green: 0.2, blue: 0.4)
+                            ]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
                     )
-                )
-                .foregroundColor(.white)
-                .cornerRadius(8)
-                .padding(.horizontal)
-                .disabled(isLoading)
-                
-                .padding(.bottom, 50)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                    .padding(.horizontal)
+                    .disabled(isLoading)
+                    
+                    NavigationLink(destination: SignUpView(isLoggedIn: $isLoggedIn)) {
+                        Text("Don't have an account? Sign up")
+                            .foregroundColor(.white)
+                    }
+                    .padding(.top, 10)
+                    
+                    .padding(.bottom, 50)
+                }
+                .padding()
             }
-            .padding()
         }
     }
 }

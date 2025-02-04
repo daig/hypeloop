@@ -37,4 +37,17 @@ class AuthService: ObservableObject {
             self.isAuthenticated = false
         }
     }
+    
+    func signUp(email: String, password: String) async throws {
+        do {
+            let result = try await Auth.auth().createUser(withEmail: email, password: password)
+            DispatchQueue.main.async {
+                self.user = result.user
+                self.isAuthenticated = true
+            }
+        } catch {
+            print("Debug - SignUp Error: \(error.localizedDescription)")
+            throw error
+        }
+    }
 } 
