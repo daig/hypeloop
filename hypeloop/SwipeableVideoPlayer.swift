@@ -90,18 +90,6 @@ struct SwipeableVideoPlayer: View {
                                             .scaleEffect(showThumbsDown ? 1 : 0.5)
                                             .animation(.spring(response: 0.3), value: showThumbsDown)
                                         
-                                        // Paper airplane overlay
-                                        Image(systemName: "paperplane.fill")
-                                            .resizable()
-                                            .frame(width: 100, height: 100)
-                                            .foregroundColor(.blue)
-                                            .opacity(showPaperAirplane ? 0.8 : 0)
-                                            .scaleEffect(showPaperAirplane ? 1 : 0.5)
-                                            .rotationEffect(.degrees(-45))
-                                            .offset(y: paperAirplaneOffset)
-                                            .animation(.spring(response: 0.3).speed(0.7), value: showPaperAirplane)
-                                            .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: paperAirplaneOffset)
-                                        
                                         // Save icon overlay
                                         Image(systemName: "square.and.arrow.down.fill")
                                             .resizable()
@@ -161,6 +149,19 @@ struct SwipeableVideoPlayer: View {
                         .zIndex(1)
                     }
                 }
+                
+                // Paper airplane overlay (moved outside card stack)
+                Image(systemName: "paperplane.fill")
+                    .resizable()
+                    .frame(width: 100, height: 100)
+                    .foregroundColor(.blue)
+                    .opacity(showPaperAirplane ? 0.8 : 0)
+                    .scaleEffect(showPaperAirplane ? 1 : 0.5)
+                    .rotationEffect(.degrees(-45))
+                    .offset(y: paperAirplaneOffset)
+                    .animation(.spring(response: 0.3).speed(0.7), value: showPaperAirplane)
+                    .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: paperAirplaneOffset)
+                    .zIndex(3) // Ensure it's above the cards
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onAppear {
@@ -194,33 +195,33 @@ struct SwipeableVideoPlayer: View {
         // Check for vertical swipes first
         if abs(dragHeight) > dragThreshold && abs(dragHeight) > abs(dragWidth) {
             if dragHeight < 0 {
-                // Swipe up
-                withAnimation(.easeOut(duration: 0.2)) {
-                    offset.height = -500
-                }
-                
+                // Swipe up - show paper airplane first
                 showPaperAirplane = true
                 
-                // Initial fast upward motion
-                withAnimation(.easeOut(duration: 0.5)) {
+                // Animate card and paper airplane together
+                withAnimation(.easeOut(duration: 0.3)) {
+                    offset.height = -500
                     paperAirplaneOffset = -200
                 }
                 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                // After animation completes, trigger share and reset
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    // Trigger share sheet
                     videoManager.handleUpSwipe()
+                    
+                    // Reset card position
                     withAnimation(.none) {
                         offset = .zero
-                        // Continue flying upward while fading out
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            withAnimation(.easeOut(duration: 0.8)) {
-                                showPaperAirplane = false
-                                paperAirplaneOffset -= 150 // Additional upward motion while fading
-                            }
-                            // Reset position after completely hidden
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                                paperAirplaneOffset = 0
-                            }
-                        }
+                    }
+                    
+                    // Fade out paper airplane
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        showPaperAirplane = false
+                    }
+                    
+                    // Reset paper airplane position without animation
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        paperAirplaneOffset = 0
                     }
                 }
             } else {
