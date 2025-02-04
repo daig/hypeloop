@@ -9,13 +9,15 @@ import SwiftUI
 import AVKit
 
 struct ContentView: View {
+    @StateObject private var videoManager = VideoManager()
+    
     var body: some View {
         ZStack(alignment: .bottom) {
             // Background Layer
             Color.black.ignoresSafeArea()
             
             // Video Player Layer
-            SwipeableVideoPlayer()
+            SwipeableVideoPlayer(videoManager: videoManager)
                 .ignoresSafeArea()
             
             // Overlay Elements (excluding bottom nav)
@@ -24,12 +26,14 @@ struct ContentView: View {
                 VStack {
                     Spacer()
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("@creator_name")
-                            .font(.headline)
-                            .bold()
-                        Text("Check out this amazing hyperloop concept! 🚄 #future #transportation")
-                            .font(.subheadline)
-                            .lineLimit(2)
+                        if let currentVideo = videoManager.videoStack.first {
+                            Text("@\(currentVideo.creator)")
+                                .font(.headline)
+                                .bold()
+                            Text(currentVideo.description)
+                                .font(.subheadline)
+                                .lineLimit(2)
+                        }
                     }
                     .foregroundColor(.white)
                     .padding()

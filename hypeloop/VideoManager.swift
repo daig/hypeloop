@@ -2,26 +2,61 @@ import Foundation
 import SwiftUI
 import AVKit
 
+struct VideoItem {
+    let url: URL
+    let creator: String
+    let description: String
+}
+
 class VideoManager: ObservableObject {
     // Only using Apple's sample streams (all unique)
     private let availableVideos = [
-        // Main demo stream
-        "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8",
-        // 16:9 streams at different qualities
-        "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear1/prog_index.m3u8",
-        "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear2/prog_index.m3u8",
-        "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear3/prog_index.m3u8",
-        "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear4/prog_index.m3u8",
-        // 4:3 streams at different qualities
-        "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/gear1/prog_index.m3u8",
-        "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/gear2/prog_index.m3u8",
-        "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/gear3/prog_index.m3u8"
-    ].map { URL(string: $0)! }
+        VideoItem(
+            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8")!,
+            creator: "Apple Demo",
+            description: "Experience our cutting-edge hyperloop prototype in action! 🚄 Revolutionizing transportation #innovation"
+        ),
+        VideoItem(
+            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear1/prog_index.m3u8")!,
+            creator: "Apple Streams",
+            description: "Behind the scenes: Testing our hyperloop's magnetic levitation system 🧲 #engineering #future"
+        ),
+        VideoItem(
+            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear2/prog_index.m3u8")!,
+            creator: "Quality Test",
+            description: "Zero to 760mph in seconds! Watch our latest speed test 🏃‍♂️💨 #speed #technology"
+        ),
+        VideoItem(
+            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear3/prog_index.m3u8")!,
+            creator: "HD Stream",
+            description: "Inside look: Our revolutionary vacuum tube design 🌀 #aerodynamics #engineering"
+        ),
+        VideoItem(
+            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear4/prog_index.m3u8")!,
+            creator: "4K Demo",
+            description: "First passenger capsule reveal! 🎉 The future of travel is here #hyperloop #design"
+        ),
+        VideoItem(
+            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/gear1/prog_index.m3u8")!,
+            creator: "Classic Format",
+            description: "Safety testing in progress: Our advanced braking system demonstration 🛑 #safety #innovation"
+        ),
+        VideoItem(
+            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/gear2/prog_index.m3u8")!,
+            creator: "Retro Style",
+            description: "Energy efficiency breakthrough: New solar-powered subsystems ☀️ #sustainable #green"
+        ),
+        VideoItem(
+            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/gear3/prog_index.m3u8")!,
+            creator: "Vintage View",
+            description: "Route planning unveiled: City-to-city in minutes! 🗺️ #infrastructure #transport"
+        )
+    ]
     
-    @Published private(set) var videoStack: [URL] = []
+    @Published private(set) var videoStack: [VideoItem] = []
     @Published private(set) var currentPlayer: AVPlayer
     @Published var isShowingShareSheet = false
-    @Published var itemToShare: URL?
+    @Published var itemsToShare: [Any]?
     
     private var preloadedItem: AVPlayerItem?
     private var preloadedAsset: AVAsset?
@@ -33,7 +68,7 @@ class VideoManager: ObservableObject {
         
         // Load the first video
         if let firstVideo = videoStack.first {
-            let item = AVPlayerItem(url: firstVideo)
+            let item = AVPlayerItem(url: firstVideo.url)
             currentPlayer.replaceCurrentItem(with: item)
         }
     }
@@ -46,10 +81,10 @@ class VideoManager: ObservableObject {
     
     func preloadNextVideo() {
         guard videoStack.count > 1 else { return }
-        let nextVideoURL = videoStack[1]
+        let nextVideo = videoStack[1]
         
         // Create and start preloading the asset
-        let asset = AVAsset(url: nextVideoURL)
+        let asset = AVAsset(url: nextVideo.url)
         preloadedAsset = asset
         
         // Preload essential properties
@@ -90,7 +125,7 @@ class VideoManager: ObservableObject {
         } else {
             // Fallback to regular loading if preload wasn't ready
             if let nextVideo = videoStack.first {
-                let nextItem = AVPlayerItem(url: nextVideo)
+                let nextItem = AVPlayerItem(url: nextVideo.url)
                 currentPlayer.replaceCurrentItem(with: nextItem)
                 currentPlayer.play()
             }
@@ -110,10 +145,12 @@ class VideoManager: ObservableObject {
     }
     
     func handleUpSwipe() {
-        // Get the current video URL
+        // Get the current video URL and description
         if let currentItem = currentPlayer.currentItem,
-           let urlAsset = currentItem.asset as? AVURLAsset {
-            itemToShare = urlAsset.url
+           let urlAsset = currentItem.asset as? AVURLAsset,
+           let currentVideo = videoStack.first {
+            let shareText = "\(urlAsset.url)\n\n\(currentVideo.description)"
+            itemsToShare = [shareText]
             isShowingShareSheet = true
         }
         

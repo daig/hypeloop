@@ -37,7 +37,7 @@ struct ShareSheet: UIViewControllerRepresentable {
 }
 
 struct SwipeableVideoPlayer: View {
-    @StateObject private var videoManager = VideoManager()
+    @ObservedObject var videoManager: VideoManager
     @GestureState private var dragOffset: CGSize = .zero
     @State private var offset: CGSize = .zero
     @State private var hasStartedPreloading = false
@@ -120,22 +120,10 @@ struct SwipeableVideoPlayer: View {
                         .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.6), value: dragOffset)
                         .zIndex(2)
                     } else {
-                        // Background placeholder card
+                        // Background card (black)
                         ZStack {
                             RoundedRectangle(cornerRadius: 20)
-                                .fill(Color(.systemGray6))
-                            
-                            VStack(spacing: 15) {
-                                Image(systemName: "play.rectangle.fill")
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 60, height: 60)
-                                    .foregroundColor(.gray)
-                                
-                                Text("Next Video")
-                                    .font(.headline)
-                                    .foregroundColor(.gray)
-                            }
+                                .fill(Color.black)
                         }
                         .frame(width: geometry.size.width - cardSpacing * 2, height: geometry.size.height - cardSpacing * 2)
                         .cornerRadius(20)
@@ -171,8 +159,8 @@ struct SwipeableVideoPlayer: View {
                 videoManager.currentPlayer.pause()
             }
             .sheet(isPresented: $videoManager.isShowingShareSheet) {
-                if let url = videoManager.itemToShare {
-                    ShareSheet(items: [url])
+                if let items = videoManager.itemsToShare {
+                    ShareSheet(items: items)
                 }
             }
         }
@@ -293,9 +281,8 @@ struct SwipeableVideoPlayer: View {
             }
         }
     }
-} 
+}
 
 #Preview {
-    SwipeableVideoPlayer()
-        .environmentObject(VideoManager())
+    SwipeableVideoPlayer(videoManager: VideoManager())
 }
