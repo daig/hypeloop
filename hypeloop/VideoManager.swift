@@ -95,6 +95,18 @@ class VideoManager: ObservableObject {
         }
     }
     
+    func handleRightSwipe() {
+        // Right swipe indicates "like" or positive action
+        // For now, just move to next video
+        moveToNextVideo()
+    }
+    
+    func handleLeftSwipe() {
+        // Left swipe indicates "dislike" or negative action
+        // For now, just move to next video
+        moveToNextVideo()
+    }
+    
     deinit {
         cleanupCurrentVideo()
     }

@@ -29,6 +29,8 @@ struct SwipeableVideoPlayer: View {
     @GestureState private var dragOffset: CGSize = .zero
     @State private var offset: CGSize = .zero
     @State private var hasStartedPreloading = false
+    @State private var showThumbsUp = false
+    @State private var showThumbsDown = false
     
     // Constants for card animations
     private let swipeThreshold: CGFloat = 100
@@ -52,6 +54,27 @@ struct SwipeableVideoPlayer: View {
                             // Video player
                             AutoplayVideoPlayer(player: videoManager.currentPlayer)
                                 .clipShape(RoundedRectangle(cornerRadius: 20))
+                                .overlay(
+                                    ZStack {
+                                        // Thumbs up overlay
+                                        Image(systemName: "hand.thumbsup.fill")
+                                            .resizable()
+                                            .frame(width: 100, height: 100)
+                                            .foregroundColor(.green)
+                                            .opacity(showThumbsUp ? 0.8 : 0)
+                                            .scaleEffect(showThumbsUp ? 1 : 0.5)
+                                            .animation(.spring(response: 0.3), value: showThumbsUp)
+                                        
+                                        // Thumbs down overlay
+                                        Image(systemName: "hand.thumbsdown.fill")
+                                            .resizable()
+                                            .frame(width: 100, height: 100)
+                                            .foregroundColor(.red)
+                                            .opacity(showThumbsDown ? 0.8 : 0)
+                                            .scaleEffect(showThumbsDown ? 1 : 0.5)
+                                            .animation(.spring(response: 0.3), value: showThumbsDown)
+                                    }
+                                )
                         }
                         .frame(width: geometry.size.width - cardSpacing * 2, height: geometry.size.height - cardSpacing * 2)
                         .offset(x: offset.width + dragOffset.width, y: offset.height + dragOffset.height)
@@ -130,10 +153,26 @@ struct SwipeableVideoPlayer: View {
                 offset.height = gesture.translation.height
             }
             
+            // Show appropriate thumb indicator
+            if dragWidth > 0 {
+                showThumbsUp = true
+            } else {
+                showThumbsDown = true
+            }
+            
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                videoManager.moveToNextVideo()
+                if dragWidth > 0 {
+                    videoManager.handleRightSwipe()
+                } else {
+                    videoManager.handleLeftSwipe()
+                }
                 withAnimation(.none) {
                     offset = .zero
+                    // Hide the indicators after a short delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        showThumbsUp = false
+                        showThumbsDown = false
+                    }
                 }
             }
         } else {
@@ -143,3 +182,8 @@ struct SwipeableVideoPlayer: View {
         }
     }
 } 
+
+#Preview {
+    SwipeableVideoPlayer()
+        .environmentObject(VideoManager())
+}
