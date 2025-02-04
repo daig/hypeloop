@@ -3,73 +3,96 @@ import SwiftUI
 import AVKit
 
 class VideoManager: ObservableObject {
-    // Sample video URLs with more variety
+    // Only using Apple's sample streams (all unique)
     private let availableVideos = [
-        // Nature and landscapes
+        // Main demo stream
         "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8",
-        // Tech demo
-        "https://bitdash-a.akamaihd.net/content/MI201109210084_1/m3u8s/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.m3u8",
-        // Sports
-        "https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8",
-        // Animation
-        "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
-        // Urban scenes
-        "https://cdn.bitmovin.com/content/assets/art-of-motion-dash-hls-progressive/m3u8s/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.m3u8",
-        // Nature documentary
-        "https://test-streams.mux.dev/test_001/stream.m3u8",
-        // Space footage
-        "https://cph-p2p-msl.akamaized.net/hls/live/2000341/test/master.m3u8",
-        // Ocean scenes
-        "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8",
+        // 16:9 streams at different qualities
+        "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear1/prog_index.m3u8",
+        "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear2/prog_index.m3u8",
+        "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear3/prog_index.m3u8",
+        "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear4/prog_index.m3u8",
+        // 4:3 streams at different qualities
+        "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/gear1/prog_index.m3u8",
+        "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/gear2/prog_index.m3u8",
+        "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/gear3/prog_index.m3u8"
     ].map { URL(string: $0)! }
     
-    @Published var history: [URL] = []
-    @Published var currentVideoIndex: Int = 0
-    @Published var currentPlayer: AVPlayer?
+    @Published private(set) var videoStack: [URL] = []
+    @Published private(set) var currentPlayer: AVPlayer
+    
+    private var preloadedItem: AVPlayerItem?
+    private var preloadedAsset: AVAsset?
     
     init() {
-        let initialVideo = availableVideos[0]
-        history.append(initialVideo)
-        currentPlayer = AVPlayer(url: initialVideo)
+        // Initialize with a dummy AVPlayer
+        currentPlayer = AVPlayer()
+        videoStack = availableVideos.shuffled()
+        
+        // Load the first video
+        if let firstVideo = videoStack.first {
+            let item = AVPlayerItem(url: firstVideo)
+            currentPlayer.replaceCurrentItem(with: item)
+        }
     }
     
     private func cleanupCurrentVideo() {
-        currentPlayer?.pause()
-        currentPlayer?.replaceCurrentItem(with: nil)
-        currentPlayer = nil
+        currentPlayer.pause()
+        // Don't nil out the player, just remove its item
+        currentPlayer.replaceCurrentItem(with: nil)
     }
     
-    func getNextVideo() -> URL? {
-        let unwatchedVideos = availableVideos.filter { !history.contains($0) }
-        guard !unwatchedVideos.isEmpty else { 
-            // If we've watched all videos, start over with a random one
-            return availableVideos.randomElement() 
+    func preloadNextVideo() {
+        guard videoStack.count > 1 else { return }
+        let nextVideoURL = videoStack[1]
+        
+        // Create and start preloading the asset
+        let asset = AVAsset(url: nextVideoURL)
+        preloadedAsset = asset
+        
+        // Preload essential properties
+        Task {
+            await asset.loadValues(forKeys: ["playable", "duration"])
+            
+            // Only create the player item if this is still our preloaded asset
+            if asset === preloadedAsset {
+                let item = AVPlayerItem(asset: asset)
+                
+                // Switch to main thread for UI updates
+                await MainActor.run {
+                    self.preloadedItem = item
+                }
+            }
         }
-        return unwatchedVideos.randomElement()
     }
     
-    func goToNextVideo() {
-        guard let nextVideo = getNextVideo() else { return }
+    func moveToNextVideo() {
         cleanupCurrentVideo()
         
-        // If we're not at the end of history, remove all videos after current index
-        if currentVideoIndex < history.count - 1 {
-            history.removeSubrange((currentVideoIndex + 1)...)
+        // Remove the current video from the stack
+        if !videoStack.isEmpty {
+            videoStack.removeFirst()
         }
         
-        history.append(nextVideo)
-        currentVideoIndex = history.count - 1
-        currentPlayer = AVPlayer(url: nextVideo)
-        currentPlayer?.play()
-    }
-    
-    func goToPreviousVideo() {
-        guard currentVideoIndex > 0 else { return }
-        cleanupCurrentVideo()
-        currentVideoIndex -= 1
-        let previousVideo = history[currentVideoIndex]
-        currentPlayer = AVPlayer(url: previousVideo)
-        currentPlayer?.play()
+        // If stack is empty, reshuffle all videos
+        if videoStack.isEmpty {
+            videoStack = availableVideos.shuffled()
+        }
+        
+        // Use preloaded item if available, otherwise create new one
+        if let preloadedItem = preloadedItem {
+            currentPlayer.replaceCurrentItem(with: preloadedItem)
+            self.preloadedItem = nil
+            self.preloadedAsset = nil
+            currentPlayer.play()
+        } else {
+            // Fallback to regular loading if preload wasn't ready
+            if let nextVideo = videoStack.first {
+                let nextItem = AVPlayerItem(url: nextVideo)
+                currentPlayer.replaceCurrentItem(with: nextItem)
+                currentPlayer.play()
+            }
+        }
     }
     
     deinit {
