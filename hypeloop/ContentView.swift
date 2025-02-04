@@ -15,7 +15,7 @@ struct ContentView: View {
             Color.black.ignoresSafeArea()
             
             // Video Player Layer
-            VideoPlayerView()
+            SwipeableVideoPlayer()
                 .ignoresSafeArea()
             
             // Overlay Elements (excluding bottom nav)
@@ -41,8 +41,8 @@ struct ContentView: View {
                             endPoint: .bottom
                         )
                     )
-                    .padding(.bottom, 90) // Add padding to lift above nav bar
-                    .padding(.trailing, 80) // Add padding to avoid overlap with reaction buttons
+                    .padding(.bottom, 90)
+                    .padding(.trailing, 80)
                 }
                 
                 // Right-side Reaction Panel
@@ -53,13 +53,13 @@ struct ContentView: View {
                     ReactionButton(iconName: "arrow.rectanglepath", label: "Related", count: "234")
                     ReactionButton(iconName: "bubble.right.fill", label: "Responses", count: "1.2K")
                     Spacer()
-                        .frame(height: 80) // Add space for bottom nav
+                        .frame(height: 80)
                 }
                 .padding(.trailing, 16)
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
             
-            // Bottom Navigation Bar (always on top)
+            // Bottom Navigation Bar
             VStack {
                 Spacer()
                 HStack(spacing: 40) {
@@ -75,26 +75,6 @@ struct ContentView: View {
             }
             .ignoresSafeArea()
         }
-    }
-}
-
-struct VideoPlayerView: View {
-    // Using Apple's sample HLS stream
-    private let player = AVPlayer(url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8")!)
-    
-    var body: some View {
-        VideoPlayer(player: player)
-            .onAppear {
-                // Loop the video
-                NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { _ in
-                    player.seek(to: .zero)
-                    player.play()
-                }
-                player.play()
-            }
-            .onDisappear {
-                player.pause()
-            }
     }
 }
 
