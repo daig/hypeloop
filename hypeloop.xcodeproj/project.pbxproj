@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		CCAFE25A2D51AE9000F63530 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = CCAFE2592D51AE9000F63530 /* FirebaseAuth */; };
 		CCAFE25C2D51AE9000F63530 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = CCAFE25B2D51AE9000F63530 /* FirebaseFirestore */; };
+		CCAFE27C2D52D0FF00F63530 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = CCAFE27B2D52D0FF00F63530 /* FirebaseStorage */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +31,7 @@
 			files = (
 				CCAFE25A2D51AE9000F63530 /* FirebaseAuth in Frameworks */,
 				CCAFE25C2D51AE9000F63530 /* FirebaseFirestore in Frameworks */,
+				CCAFE27C2D52D0FF00F63530 /* FirebaseStorage in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -74,6 +76,7 @@
 			packageProductDependencies = (
 				CCAFE2592D51AE9000F63530 /* FirebaseAuth */,
 				CCAFE25B2D51AE9000F63530 /* FirebaseFirestore */,
+				CCAFE27B2D52D0FF00F63530 /* FirebaseStorage */,
 			);
 			productName = hypeloop;
 			productReference = CCDC88E72D516DE400C0AA78 /* hypeloop.app */;
@@ -370,6 +373,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CCAFE2582D51AE9000F63530 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFirestore;
+		};
+		CCAFE27B2D52D0FF00F63530 /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CCAFE2582D51AE9000F63530 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

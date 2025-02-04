@@ -16,7 +16,7 @@ struct NavigationBar: View {
                 NavigationButton(iconName: "bookmark.fill", label: "Saved")
                     .onTapGesture { selectedTab = 2 }
                     .foregroundColor(selectedTab == 2 ? .white : .gray)
-                NavigationButton(iconName: "person.fill", label: "Profile")
+                NavigationButton(iconName: "video.badge.plus", label: "Create")
                     .onTapGesture { selectedTab = 3 }
                     .foregroundColor(selectedTab == 3 ? .white : .gray)
             }

@@ -23,7 +23,7 @@ struct ContentView: View {
                 } else if selectedTab == 2 {
                     SavedVideosTabView(videoManager: videoManager)
                 } else {
-                    ProfileTabView()
+                    CreateTabView()
                 }
             }
             .animation(.easeInOut, value: selectedTab)
