@@ -6,6 +6,14 @@ struct VideoItem {
     let url: URL
     let creator: String
     let description: String
+    let id: String  // Add an ID for uniqueness
+    
+    init(url: URL, creator: String, description: String) {
+        self.url = url
+        self.creator = creator
+        self.description = description
+        self.id = url.absoluteString  // Use URL as unique identifier
+    }
 }
 
 class VideoManager: ObservableObject {
@@ -57,6 +65,7 @@ class VideoManager: ObservableObject {
     @Published private(set) var currentPlayer: AVPlayer
     @Published var isShowingShareSheet = false
     @Published var itemsToShare: [Any]?
+    @Published private(set) var savedVideos: [VideoItem] = []  // Add saved videos array
     
     private var preloadedItem: AVPlayerItem?
     private var preloadedAsset: AVAsset?
@@ -160,8 +169,17 @@ class VideoManager: ObservableObject {
     
     func handleDownSwipe() {
         // Down swipe indicates "save" action
-        // For now, just move to next video
+        if let currentVideo = videoStack.first {
+            // Only save if not already saved
+            if !savedVideos.contains(where: { $0.id == currentVideo.id }) {
+                savedVideos.append(currentVideo)
+            }
+        }
         moveToNextVideo()
+    }
+    
+    func removeSavedVideo(at indexSet: IndexSet) {
+        savedVideos.remove(atOffsets: indexSet)
     }
     
     deinit {

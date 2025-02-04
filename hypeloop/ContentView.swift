@@ -10,67 +10,96 @@ import AVKit
 
 struct ContentView: View {
     @StateObject private var videoManager = VideoManager()
+    @State private var selectedTab = 0
     
     var body: some View {
-        ZStack(alignment: .bottom) {
-            // Background Layer
-            Color.black.ignoresSafeArea()
-            
-            // Video Player Layer
-            SwipeableVideoPlayer(videoManager: videoManager)
-                .ignoresSafeArea()
-            
-            // Overlay Elements (excluding bottom nav)
-            ZStack {
-                // Video Info Overlay at bottom
-                VStack {
-                    Spacer()
-                    VStack(alignment: .leading, spacing: 8) {
-                        if let currentVideo = videoManager.videoStack.first {
-                            Text("@\(currentVideo.creator)")
-                                .font(.headline)
-                                .bold()
-                            Text(currentVideo.description)
-                                .font(.subheadline)
-                                .lineLimit(2)
+        ZStack {
+            // Content based on selected tab
+            Group {
+                if selectedTab == 0 {
+                    // Home Tab
+                    ZStack(alignment: .bottom) {
+                        // Background Layer
+                        Color.black.ignoresSafeArea()
+                        
+                        // Video Player Layer
+                        SwipeableVideoPlayer(videoManager: videoManager)
+                            .ignoresSafeArea()
+                        
+                        // Overlay Elements (excluding bottom nav)
+                        ZStack {
+                            // Video Info Overlay at bottom
+                            VStack {
+                                Spacer()
+                                VStack(alignment: .leading, spacing: 8) {
+                                    if let currentVideo = videoManager.videoStack.first {
+                                        Text("@\(currentVideo.creator)")
+                                            .font(.headline)
+                                            .bold()
+                                        Text(currentVideo.description)
+                                            .font(.subheadline)
+                                            .lineLimit(2)
+                                    }
+                                }
+                                .foregroundColor(.white)
+                                .padding()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [.clear, .black.opacity(0.6)]),
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                )
+                                .padding(.bottom, 90)
+                                .padding(.trailing, 80)
+                            }
+                            
+                            // Right-side Reaction Panel
+                            VStack(spacing: 20) {
+                                Spacer()
+                                ReactionButton(iconName: "video.badge.plus", label: "React", count: nil)
+                                ReactionButton(iconName: "heart.fill", label: "Like", count: "127K")
+                                ReactionButton(iconName: "arrow.rectanglepath", label: "Related", count: "234")
+                                ReactionButton(iconName: "bubble.right.fill", label: "Responses", count: "1.2K")
+                                Spacer()
+                                    .frame(height: 80)
+                            }
+                            .padding(.trailing, 16)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                         }
                     }
-                    .foregroundColor(.white)
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        LinearGradient(
-                            gradient: Gradient(colors: [.clear, .black.opacity(0.6)]),
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .padding(.bottom, 90)
-                    .padding(.trailing, 80)
+                } else if selectedTab == 1 {
+                    // Search Tab
+                    Color.black.ignoresSafeArea()
+                        .overlay(Text("Search").foregroundColor(.white))
+                } else if selectedTab == 2 {
+                    // Saved Videos Tab
+                    SavedVideosView(videoManager: videoManager)
+                } else {
+                    // Profile Tab
+                    Color.black.ignoresSafeArea()
+                        .overlay(Text("Profile").foregroundColor(.white))
                 }
-                
-                // Right-side Reaction Panel
-                VStack(spacing: 20) {
-                    Spacer()
-                    ReactionButton(iconName: "video.badge.plus", label: "React", count: nil)
-                    ReactionButton(iconName: "heart.fill", label: "Like", count: "127K")
-                    ReactionButton(iconName: "arrow.rectanglepath", label: "Related", count: "234")
-                    ReactionButton(iconName: "bubble.right.fill", label: "Responses", count: "1.2K")
-                    Spacer()
-                        .frame(height: 80)
-                }
-                .padding(.trailing, 16)
-                .frame(maxWidth: .infinity, alignment: .trailing)
             }
+            .animation(.easeInOut, value: selectedTab)
             
-            // Bottom Navigation Bar
+            // Navigation Bar Overlay
             VStack {
                 Spacer()
                 HStack(spacing: 40) {
                     NavigationButton(iconName: "house.fill", label: "Home")
+                        .onTapGesture { selectedTab = 0 }
+                        .foregroundColor(selectedTab == 0 ? .white : .gray)
                     NavigationButton(iconName: "magnifyingglass", label: "Search")
-                    NavigationButton(iconName: "plus.square", label: "Create")
+                        .onTapGesture { selectedTab = 1 }
+                        .foregroundColor(selectedTab == 1 ? .white : .gray)
+                    NavigationButton(iconName: "bookmark.fill", label: "Saved")
+                        .onTapGesture { selectedTab = 2 }
+                        .foregroundColor(selectedTab == 2 ? .white : .gray)
                     NavigationButton(iconName: "person.fill", label: "Profile")
+                        .onTapGesture { selectedTab = 3 }
+                        .foregroundColor(selectedTab == 3 ? .white : .gray)
                 }
                 .padding(.vertical, 10)
                 .padding(.bottom, 20)
@@ -114,6 +143,45 @@ struct ReactionButton: View {
             }
         }
         .foregroundColor(.white)
+    }
+}
+
+struct SavedVideosView: View {
+    @ObservedObject var videoManager: VideoManager
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                if videoManager.savedVideos.isEmpty {
+                    Text("No saved videos yet")
+                        .foregroundColor(.gray)
+                } else {
+                    List {
+                        ForEach(videoManager.savedVideos, id: \.id) { video in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("@\(video.creator)")
+                                    .font(.headline)
+                                    .bold()
+                                Text(video.description)
+                                    .font(.subheadline)
+                                    .lineLimit(2)
+                            }
+                            .listRowBackground(Color.black)
+                            .foregroundColor(.white)
+                        }
+                        .onDelete(perform: videoManager.removeSavedVideo)
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("Saved Videos")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.black, for: .navigationBar)
+        }
     }
 }
 
