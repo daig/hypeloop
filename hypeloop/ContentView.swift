@@ -6,41 +6,62 @@
 //
 
 import SwiftUI
+import AVKit
 
 struct ContentView: View {
     var body: some View {
-        ZStack {
-            // Background/Video Layer
-            Image("hypeloopBg")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
+        ZStack(alignment: .bottom) {
+            // Background Layer
+            Color.black.ignoresSafeArea()
+            
+            // Video Player Layer
+            VideoPlayerView()
                 .ignoresSafeArea()
             
-            // Content Overlay
-            VStack {
-                Spacer() // Pushes content to bottom
-                
-                // Video Info Overlay
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("@creator_name")
-                        .font(.headline)
-                        .bold()
-                    Text("Check out this amazing hyperloop concept! 🚄 #future #transportation")
-                        .font(.subheadline)
-                        .lineLimit(2)
-                }
-                .foregroundColor(.white)
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    LinearGradient(
-                        gradient: Gradient(colors: [.clear, .black.opacity(0.3)]),
-                        startPoint: .top,
-                        endPoint: .bottom
+            // Overlay Elements (excluding bottom nav)
+            ZStack {
+                // Video Info Overlay at bottom
+                VStack {
+                    Spacer()
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("@creator_name")
+                            .font(.headline)
+                            .bold()
+                        Text("Check out this amazing hyperloop concept! 🚄 #future #transportation")
+                            .font(.subheadline)
+                            .lineLimit(2)
+                    }
+                    .foregroundColor(.white)
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [.clear, .black.opacity(0.6)]),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
                     )
-                )
+                    .padding(.bottom, 90) // Add padding to lift above nav bar
+                    .padding(.trailing, 80) // Add padding to avoid overlap with reaction buttons
+                }
                 
-                // Bottom Navigation Bar
+                // Right-side Reaction Panel
+                VStack(spacing: 20) {
+                    Spacer()
+                    ReactionButton(iconName: "video.badge.plus", label: "React", count: nil)
+                    ReactionButton(iconName: "heart.fill", label: "Like", count: "127K")
+                    ReactionButton(iconName: "arrow.rectanglepath", label: "Related", count: "234")
+                    ReactionButton(iconName: "bubble.right.fill", label: "Responses", count: "1.2K")
+                    Spacer()
+                        .frame(height: 80) // Add space for bottom nav
+                }
+                .padding(.trailing, 16)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            
+            // Bottom Navigation Bar (always on top)
+            VStack {
+                Spacer()
                 HStack(spacing: 40) {
                     NavigationButton(iconName: "house.fill", label: "Home")
                     NavigationButton(iconName: "magnifyingglass", label: "Search")
@@ -52,19 +73,28 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
                 .background(.ultraThinMaterial)
             }
-            
-            // Right-side Reaction Panel
-            VStack(spacing: 20) {
-                Spacer()
-                ReactionButton(iconName: "video.badge.plus", label: "React", count: nil)
-                ReactionButton(iconName: "heart.fill", label: "Like", count: "127K")
-                ReactionButton(iconName: "arrow.rectanglepath", label: "Related", count: "234")
-                ReactionButton(iconName: "bubble.right.fill", label: "Responses", count: "1.2K")
-                Spacer()
-            }
-            .padding(.trailing, 16)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .ignoresSafeArea()
         }
+    }
+}
+
+struct VideoPlayerView: View {
+    // Using Apple's sample HLS stream
+    private let player = AVPlayer(url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8")!)
+    
+    var body: some View {
+        VideoPlayer(player: player)
+            .onAppear {
+                // Loop the video
+                NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { _ in
+                    player.seek(to: .zero)
+                    player.play()
+                }
+                player.play()
+            }
+            .onDisappear {
+                player.pause()
+            }
     }
 }
 
