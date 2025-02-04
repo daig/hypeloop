@@ -6,14 +6,46 @@
 //
 
 import SwiftUI
+import FirebaseAuth
 
 struct LoginView: View {
-    // Binding to the login state from the app entry point
     @Binding var isLoggedIn: Bool
+    @StateObject private var authService = AuthService.shared
     
-    @State private var username: String = ""
+    @State private var email: String = ""
     @State private var password: String = ""
-
+    @State private var errorMessage: String = ""
+    @State private var isLoading = false
+    
+    private func handleAuthError(_ error: Error) -> String {
+        let nsError = error as NSError
+        print("Debug - Error code: \(nsError.code), Domain: \(nsError.domain)")
+        
+        // Handle the generic "malformed credential" error which is now used for both wrong password and non-existent user
+        if nsError.localizedDescription.contains("malformed or has expired") {
+            return "Invalid email or password. Please check your credentials and try again."
+        }
+        
+        // Handle other specific cases that are still reported
+        guard let errorCode = AuthErrorCode(_bridgedNSError: nsError) else {
+            return "An error occurred. Please try again later."
+        }
+        
+        switch errorCode {
+        case .invalidEmail:
+            return "Please enter a valid email address."
+        case .tooManyRequests:
+            return "Too many attempts. Please try again later."
+        case .networkError:
+            return "Network error. Please check your internet connection."
+        case .userDisabled:
+            return "This account has been disabled. Please contact support."
+        default:
+            print("Debug - Unhandled error code: \(errorCode)")
+            return "An error occurred. Please try again."
+        }
+    }
+    
     var body: some View {
         ZStack {
             // Full-page background image using hypeloopLogo
@@ -32,13 +64,15 @@ struct LoginView: View {
             VStack(spacing: 20) {
                 Spacer()
                 
-                TextField("Username", text: $username)
+                TextField("Email", text: $email)
                     .textFieldStyle(PlainTextFieldStyle())
                     .padding()
                     .background(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
                     .cornerRadius(8)
                     .padding(.horizontal)
                     .foregroundColor(.white)
+                    .textContentType(.emailAddress)
+                    .textInputAutocapitalization(.never)
                 
                 SecureField("Password", text: $password)
                     .textFieldStyle(PlainTextFieldStyle())
@@ -48,29 +82,52 @@ struct LoginView: View {
                     .padding(.horizontal)
                     .foregroundColor(.white)
                 
-                Button(action: {
-                    // Stub login action: simply print credentials and toggle login state.
-                    print("Login tapped with username: \(username) and password: \(password)")
-                    isLoggedIn = true
-                }) {
-                    Text("Login")
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(
-                            LinearGradient(
-                                gradient: Gradient(colors: [
-                                    Color(red: 0.2, green: 0.2, blue: 0.3),
-                                    Color(red: 0.3, green: 0.2, blue: 0.4)
-                                ]),
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
+                if !errorMessage.isEmpty {
+                    Text(errorMessage)
+                        .foregroundColor(.red)
                         .padding(.horizontal)
+                        .multilineTextAlignment(.center)
                 }
-                .padding(.bottom, 50) // Add some padding at the bottom
+                
+                Button(action: {
+                    Task {
+                        isLoading = true
+                        do {
+                            try await authService.signIn(email: email, password: password)
+                            isLoggedIn = true
+                        } catch {
+                            errorMessage = handleAuthError(error)
+                        }
+                        isLoading = false
+                    }
+                }) {
+                    if isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                    } else {
+                        Text("Login")
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                    }
+                }
+                .background(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color(red: 0.2, green: 0.2, blue: 0.3),
+                            Color(red: 0.3, green: 0.2, blue: 0.4)
+                        ]),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .foregroundColor(.white)
+                .cornerRadius(8)
+                .padding(.horizontal)
+                .disabled(isLoading)
+                
+                .padding(.bottom, 50)
             }
             .padding()
         }
@@ -79,7 +136,6 @@ struct LoginView: View {
 
 struct LoginView_Previews: PreviewProvider {
     static var previews: some View {
-        // Provide a constant binding for preview purposes.
         LoginView(isLoggedIn: .constant(false))
     }
 }
