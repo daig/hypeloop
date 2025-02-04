@@ -17,18 +17,22 @@ struct LoginView: View {
     var body: some View {
         ZStack {
             // Full-page background image using hypeloopLogo
-            Image("hypeloopLogo")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .ignoresSafeArea() // Ensures the image covers the entire screen
+            GeometryReader { geometry in
+                Image("hypeloopLogo")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: geometry.size.width * 1.2, height: geometry.size.height)
+                    .clipped()
+                    .position(x: geometry.size.width/2, y: geometry.size.height/2)
+                    .ignoresSafeArea()
+            }
+            .ignoresSafeArea()
 
             // Login form overlay
             VStack(spacing: 20) {
                 Spacer()
                 
                 TextField("Username", text: $username)
-                    .textFieldStyle(.roundedBorder)
-                    .padding(.horizontal)
                     .textFieldStyle(PlainTextFieldStyle())
                     .padding()
                     .background(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
@@ -37,8 +41,6 @@ struct LoginView: View {
                     .foregroundColor(.white)
                 
                 SecureField("Password", text: $password)
-                    .textFieldStyle(.roundedBorder)
-                    .padding(.horizontal)
                     .textFieldStyle(PlainTextFieldStyle())
                     .padding()
                     .background(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
