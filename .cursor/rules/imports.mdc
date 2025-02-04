@@ -1,0 +1,5 @@
+---
+description: interpreting import linter errors when adding or editing swift files
+globs: *.swift
+---
+ignore all hypeloop import linter errors, your tooling for imports is not set up yet but rest assured all our files are in the same module
