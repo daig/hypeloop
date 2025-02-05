@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AVKit
+import FirebaseFunctions
 
 struct VideoItem: Identifiable {
     let id: String
@@ -34,37 +35,14 @@ class VideoManager: ObservableObject {
     private var playerItemObserver: NSObjectProtocol?
     private var seenVideoIds: Set<String> = []  // Track seen videos
     
-    // List of Mux playback IDs
-    private let playbackIds = [
-        "TxjFnTaC2zZ9pjjfPFmZruhB2vl9jKgieTDCBS3JU34",
-        "taThfR9st3stsM57kclaDMUoFqXuQCyOn6VadyeLzkg",
-        "1CH100Su01ZPrW0201731jh02ztThU7ALWIPOAZ1BpEV02002s",
-        "00i2v700W231sYJZ02kbTho6hmzkw8l9Au4JDXN9HEpvbg"
-    ]
-    
-    // Helper function to create VideoItems from playback IDs
-    private func createVideoItems(from playbackIds: [String]) -> [VideoItem] {
-        return playbackIds.enumerated().map { (index, playbackId) in
-            VideoItem(
-                id: "video_\(index + 1)",
-                playbackId: playbackId,
-                creator: "Creator \(index + 1)",
-                description: "Video \(index + 1)",
-                updatedTime: Date().addingTimeInterval(-Double(index * 3600)) // Each video 1 hour apart
-            )
-        }
-    }
-    
-    // Computed property for fixed videos
-    private var fixedVideos: [VideoItem] {
-        createVideoItems(from: playbackIds)
-    }
+    // Shared Functions instance
+    private let functions = Functions.functions(region: "us-central1")
     
     init() {
         // Initialize with a dummy AVPlayer
         currentPlayer = AVPlayer()
         
-        // Load the fixed list of videos
+        // Load videos from Mux
         loadVideosFromMux(initial: true)
     }
     
@@ -73,25 +51,78 @@ class VideoManager: ObservableObject {
             // If not initial load and we already have videos, don't reload
             guard initial || videoStack.isEmpty else { return }
             
-            // Filter out any videos we've already seen
-            let newVideos = fixedVideos.filter { video in
-                initial || !seenVideoIds.contains(video.id)
+            isLoading = true
+            
+            do {
+                print("📡 Fetching videos from Mux...")
+                
+                let callable = functions.httpsCallable("listMuxAssets")
+                let result = try await callable.call([
+                    "debug": true,
+                    "timestamp": Date().timeIntervalSince1970,
+                    "client": "ios",
+                    "requestId": UUID().uuidString
+                ])
+                
+                guard let response = result.data as? [String: Any],
+                      let videoData = response["videos"] as? [[String: Any]] else {
+                    print("❌ Invalid response format")
+                    return
+                }
+                
+                print("✅ Received \(videoData.count) videos from Mux")
+                
+                // Convert the response data to VideoItems
+                let newVideos = videoData.compactMap { data -> VideoItem? in
+                    guard let id = data["id"] as? String,
+                          let playbackId = data["playback_id"] as? String,
+                          let creator = data["creator"] as? String,
+                          let description = data["description"] as? String,
+                          let createdAt = data["created_at"] as? Double else {
+                        print("⚠️ Skipping invalid video data")
+                        return nil
+                    }
+                    
+                    return VideoItem(
+                        id: id,
+                        playbackId: playbackId,
+                        creator: creator,
+                        description: description,
+                        updatedTime: Date(timeIntervalSince1970: createdAt / 1000) // Convert from milliseconds to seconds
+                    )
+                }
+                
+                // Filter out videos we've already seen
+                let filteredVideos = newVideos.filter { video in
+                    initial || !seenVideoIds.contains(video.id)
+                }
+                
+                if initial {
+                    print("🔄 Setting initial video stack with \(filteredVideos.count) videos")
+                    self.videoStack = filteredVideos
+                } else {
+                    print("➕ Appending \(filteredVideos.count) new videos to stack")
+                    self.videoStack.append(contentsOf: filteredVideos)
+                }
+                
+                if self.currentPlayer.currentItem == nil, let firstVideo = self.videoStack.first {
+                    print("▶️ Loading first video: \(firstVideo.id)")
+                    let item = AVPlayerItem(url: firstVideo.url)
+                    self.currentPlayer.replaceCurrentItem(with: item)
+                    self.setupPlayerItem(item)
+                }
+                
+            } catch {
+                print("❌ Error fetching videos: \(error.localizedDescription)")
+                if let nsError = error as NSError? {
+                    print("🔍 Error details - Domain: \(nsError.domain), Code: \(nsError.code)")
+                    if let details = nsError.userInfo["details"] as? [String: Any] {
+                        print("📝 Error details: \(details)")
+                    }
+                }
             }
             
-            if initial {
-                print("🔄 Setting initial video stack with \(newVideos.count) videos")
-                self.videoStack = newVideos
-            } else {
-                print("➕ Appending \(newVideos.count) new videos to stack")
-                self.videoStack.append(contentsOf: newVideos)
-            }
-            
-            if self.currentPlayer.currentItem == nil, let firstVideo = self.videoStack.first {
-                print("▶️ Loading first video: \(firstVideo.id)")
-                let item = AVPlayerItem(url: firstVideo.url)
-                self.currentPlayer.replaceCurrentItem(with: item)
-                self.setupPlayerItem(item)
-            }
+            isLoading = false
         }
     }
     
