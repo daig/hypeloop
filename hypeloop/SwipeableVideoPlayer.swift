@@ -102,7 +102,7 @@ struct SwipeableVideoPlayer: View {
                             .rotationEffect(.degrees(isRefreshing ? 360 : 0))
                             .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
                         
-                        Text("No videos available")
+                        Text("Up to date!")
                             .foregroundColor(.white)
                             .font(.headline)
                         

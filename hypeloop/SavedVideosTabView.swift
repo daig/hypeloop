@@ -11,6 +11,12 @@ struct SavedVideosTabView: View {
     @State private var presentingSafari = false
     @State private var selectedVideoURL: URL? = nil
     
+    // Grid layout configuration
+    private let columns = [
+        GridItem(.flexible()),
+        GridItem(.flexible())
+    ]
+    
     var body: some View {
         NavigationView {
             ZStack {
@@ -20,74 +26,104 @@ struct SavedVideosTabView: View {
                     Text("No saved videos yet")
                         .foregroundColor(.gray)
                 } else {
-                    List {
-                        ForEach(videoManager.savedVideos, id: \.id) { video in
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("@\(video.creator)")
-                                    .font(.headline)
-                                    .bold()
-                                Text(video.description)
-                                    .font(.subheadline)
-                                    .lineLimit(2)
-                                
-                                if let progress = downloadProgress[video.id], progress < 1.0 {
+                    ScrollView {
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(videoManager.savedVideos, id: \.id) { video in
+                                ZStack(alignment: .bottomLeading) {
+                                    // Thumbnail
+                                    AsyncImage(url: video.thumbnailUrl) { image in
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                    } placeholder: {
+                                        Rectangle()
+                                            .fill(Color.gray.opacity(0.3))
+                                    }
+                                    .frame(height: 280)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    
+                                    // Gradient overlay
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                    
+                                    // Text overlay
                                     VStack(alignment: .leading, spacing: 4) {
-                                        ProgressView(value: progress)
-                                            .progressViewStyle(.linear)
-                                            .tint(.blue)
+                                        Text("@\(video.creator)")
+                                            .font(.headline)
+                                            .bold()
                                         
-                                        HStack {
-                                            Text("\(Int(progress * 100))%")
-                                                .font(.caption)
-                                                .foregroundColor(.gray)
-                                            
-                                            Spacer()
-                                            
-                                            Button(action: {
-                                                downloadTasks[video.id]?.cancel()
-                                                downloadTasks[video.id] = nil
-                                                downloadProgress[video.id] = nil
-                                            }) {
-                                                Image(systemName: "xmark.circle.fill")
-                                                    .foregroundColor(.gray)
-                                            }
-                                            .buttonStyle(.plain)
-                                        }
-                                    }
-                                    .padding(.top, 4)
-                                } else {
-                                    Button(action: {
-                                        startDownload(video)
-                                    }) {
-                                        HStack {
-                                            Image(systemName: copiedVideoId == video.id ? "checkmark" : "arrow.down.circle")
-                                            Text(copiedVideoId == video.id ? "Copied!" : "Download Video")
-                                        }
-                                        .foregroundColor(.blue)
-                                        .font(.caption)
-                                    }
-                                    .simultaneousGesture(
-                                        LongPressGesture(minimumDuration: 0.5).onEnded { _ in
-                                            UIPasteboard.general.string = video.url.absoluteString
-                                            copiedVideoId = video.id
-                                            
-                                            // Reset the copied status after 2 seconds
-                                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                                if copiedVideoId == video.id {
-                                                    copiedVideoId = nil
+                                        Text(video.description)
+                                            .font(.subheadline)
+                                            .lineLimit(2)
+                                        
+                                        // Download button
+                                        if let progress = downloadProgress[video.id], progress < 1.0 {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                ProgressView(value: progress)
+                                                    .progressViewStyle(.linear)
+                                                    .tint(.blue)
+                                                
+                                                HStack {
+                                                    Text("\(Int(progress * 100))%")
+                                                        .font(.caption)
+                                                    
+                                                    Spacer()
+                                                    
+                                                    Button(action: {
+                                                        downloadTasks[video.id]?.cancel()
+                                                        downloadTasks[video.id] = nil
+                                                        downloadProgress[video.id] = nil
+                                                    }) {
+                                                        Image(systemName: "xmark.circle.fill")
+                                                            .foregroundColor(.white)
+                                                    }
+                                                    .buttonStyle(.plain)
                                                 }
                                             }
+                                        } else {
+                                            Button(action: {
+                                                startDownload(video)
+                                            }) {
+                                                HStack {
+                                                    Image(systemName: copiedVideoId == video.id ? "checkmark" : "arrow.down.circle")
+                                                    Text(copiedVideoId == video.id ? "Copied!" : "Download Video")
+                                                }
+                                                .foregroundColor(.white)
+                                                .font(.caption)
+                                            }
+                                            .simultaneousGesture(
+                                                LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                                                    UIPasteboard.general.string = video.url.absoluteString
+                                                    copiedVideoId = video.id
+                                                    
+                                                    // Reset the copied status after 2 seconds
+                                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                                        if copiedVideoId == video.id {
+                                                            copiedVideoId = nil
+                                                        }
+                                                    }
+                                                }
+                                            )
                                         }
-                                    )
-                                    .padding(.top, 4)
+                                    }
+                                    .padding(12)
+                                }
+                                .contextMenu {
+                                    Button(role: .destructive) {
+                                        if let index = videoManager.savedVideos.firstIndex(where: { $0.id == video.id }) {
+                                            videoManager.removeSavedVideo(at: IndexSet(integer: index))
+                                        }
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
                                 }
                             }
-                            .listRowBackground(Color.black)
-                            .foregroundColor(.white)
                         }
-                        .onDelete(perform: videoManager.removeSavedVideo)
+                        .padding(12)
                     }
-                    .listStyle(.plain)
                 }
             }
             .navigationTitle("Saved Videos")

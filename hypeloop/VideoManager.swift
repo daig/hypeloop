@@ -10,12 +10,15 @@ struct VideoItem: Identifiable {
     let description: String
     let updatedTime: Date
     let playbackId: String
+    let thumbnailUrl: URL
     
     init(id: String, playbackId: String, creator: String = "User", description: String = "", updatedTime: Date = Date()) {
         self.id = id
         self.playbackId = playbackId
         // Construct the Mux playback URL
         self.url = URL(string: "https://stream.mux.com/\(playbackId).m3u8")!
+        // Construct the Mux thumbnail URL (using a static image at 0s with quality optimization)
+        self.thumbnailUrl = URL(string: "https://image.mux.com/\(playbackId)/thumbnail.jpg?time=0&width=200&fit_mode=preserve&quality=75")!
         self.creator = creator
         self.description = description
         self.updatedTime = updatedTime
