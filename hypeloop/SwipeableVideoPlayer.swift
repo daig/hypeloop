@@ -14,6 +14,12 @@ struct AutoplayVideoPlayer: UIViewControllerRepresentable {
         controller.view.backgroundColor = .clear
         controller.contentOverlayView?.backgroundColor = .clear
         
+        // Enable HLS adaptive bitrate streaming
+        if let currentItem = player.currentItem {
+            currentItem.preferredPeakBitRate = 0 // Let AVPlayer choose the best bitrate
+            currentItem.preferredForwardBufferDuration = 5 // Buffer 5 seconds ahead
+        }
+        
         // Set up looping
         NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
@@ -29,6 +35,12 @@ struct AutoplayVideoPlayer: UIViewControllerRepresentable {
     
     func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
         uiViewController.player = player
+        
+        // Update HLS settings for new player item
+        if let currentItem = player.currentItem {
+            currentItem.preferredPeakBitRate = 0
+            currentItem.preferredForwardBufferDuration = 5
+        }
         
         // Update looping observer for new player item
         NotificationCenter.default.removeObserver(context.coordinator)
@@ -98,8 +110,9 @@ struct SwipeableVideoPlayer: View {
                         
                         Button(action: {
                             isRefreshing = true
-                            Task {
-                                await videoManager.loadVideosFromFirebase(initial: true)
+                            videoManager.loadVideosFromMux(initial: true)
+                            // Set isRefreshing back to false after a short delay
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                                 isRefreshing = false
                             }
                         }) {

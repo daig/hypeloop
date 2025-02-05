@@ -106,8 +106,12 @@ struct SavedVideosTabView: View {
     private func startDownload(_ video: VideoItem) {
         guard downloadTasks[video.id] == nil else { return }
         
+        // Construct the MP4 download URL
+        // Using Mux's capped-1080p.mp4 format which is optimized for download
+        let downloadURL = URL(string: "https://stream.mux.com/\(video.playbackId)/capped-1080p.mp4")!
+        
         let session = URLSession(configuration: .default)
-        let downloadTask = session.downloadTask(with: video.url) { localURL, response, error in
+        let downloadTask = session.downloadTask(with: downloadURL) { localURL, response, error in
             DispatchQueue.main.async {
                 downloadTasks[video.id] = nil
                 downloadProgress[video.id] = nil
@@ -120,17 +124,16 @@ struct SavedVideosTabView: View {
                 guard let localURL = localURL,
                       let response = response as? HTTPURLResponse,
                       response.statusCode == 200 else {
+                    print("Invalid response or missing file")
                     return
                 }
                 
-                // Get the file extension from the URL or response
-                let ext = video.url.pathExtension.isEmpty ? "mp4" : video.url.pathExtension
-                
-                // Create a unique filename
-                let filename = "\(video.creator)_\(UUID().uuidString).\(ext)"
+                // Create a unique filename with mp4 extension
+                let filename = "\(video.creator)_\(UUID().uuidString).mp4"
                 
                 // Get the documents directory
                 guard let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                    print("Could not access documents directory")
                     return
                 }
                 
@@ -144,6 +147,7 @@ struct SavedVideosTabView: View {
                     
                     // Move downloaded file to documents
                     try FileManager.default.moveItem(at: localURL, to: destinationURL)
+                    print("✅ Successfully downloaded video to: \(destinationURL.path)")
                     
                     // Show the share sheet for the downloaded file
                     DispatchQueue.main.async {

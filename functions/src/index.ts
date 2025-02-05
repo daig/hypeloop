@@ -104,3 +104,115 @@ export const getVideoUploadUrl = onCall({
         throw new HttpsError("internal", `Failed to generate upload URL: ${msg}`);
     }
 });
+
+// Function to list all videos from Mux
+export const listMuxAssets = onCall({
+    maxInstances: 1,
+    enforceAppCheck: false,  // You can enable this later for additional security
+    region: 'us-central1'
+}, async (request) => {
+    const debug = request.data?.debug === true;
+    const client = request.data?.client || 'unknown';
+    const timestamp = request.data?.timestamp || Date.now();
+
+    logger.info("Starting listMuxAssets function", {
+        debug,
+        client,
+        timestamp,
+        auth: !!request.auth
+    });
+
+    try {
+        // Check if the user is authenticated
+        if (!request.auth) {
+            throw new HttpsError(
+                "unauthenticated",
+                "The function must be called while authenticated."
+            );
+        }
+
+        // Initialize Mux client with credentials at runtime
+        const muxClient = new Mux({
+            tokenId: muxTokenId.value(),
+            tokenSecret: muxTokenSecret.value(),
+        });
+
+        logger.info("Mux client initialized, fetching assets...");
+
+        try {
+            // List all assets
+            const {data: assets} = await muxClient.video.assets.list({
+                limit: 50, // Adjust this value based on your needs
+                page: 1
+            });
+
+            logger.info(`Successfully fetched ${assets.length} assets from Mux`);
+
+            if (debug) {
+                logger.debug("First asset sample:", {
+                    sample: assets[0] ? {
+                        id: assets[0].id,
+                        playback_ids: assets[0].playback_ids,
+                        status: assets[0].status,
+                        created_at: assets[0].created_at
+                    } : null
+                });
+            }
+
+            // Transform the assets into the format we need
+            const videos = assets.map((asset: any) => {
+                const video = {
+                    id: asset.id,
+                    playback_id: asset.playback_ids?.[0]?.id,
+                    creator: asset.metadata?.creator || "User",
+                    description: asset.metadata?.description || "A cool video",
+                    created_at: new Date(asset.created_at).getTime()
+                };
+
+                if (debug) {
+                    logger.debug(`Processed asset ${asset.id}:`, {
+                        hasPlaybackId: !!video.playback_id,
+                        metadata: asset.metadata
+                    });
+                }
+
+                return video;
+            });
+
+            logger.info(`Successfully processed ${videos.length} videos`);
+            return videos;
+
+        } catch (muxError) {
+            logger.error("Mux API error:", muxError);
+            throw new HttpsError(
+                "internal",
+                "Error fetching videos from Mux",
+                {
+                    muxError: muxError instanceof Error ? muxError.message : String(muxError),
+                    timestamp
+                }
+            );
+        }
+
+    } catch (error) {
+        logger.error("Error in listMuxAssets:", {
+            error,
+            debug,
+            client,
+            timestamp
+        });
+        
+        if (error instanceof HttpsError) {
+            throw error;
+        }
+        
+        throw new HttpsError(
+            "internal",
+            "Failed to list videos",
+            {
+                originalError: error instanceof Error ? error.message : String(error),
+                timestamp
+            }
+        );
+    }
+});

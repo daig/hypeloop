@@ -1,7 +1,6 @@
 import Foundation
 import SwiftUI
 import AVKit
-import FirebaseStorage
 
 struct VideoItem: Identifiable {
     let id: String
@@ -9,10 +8,13 @@ struct VideoItem: Identifiable {
     let creator: String
     let description: String
     let updatedTime: Date
+    let playbackId: String
     
-    init(id: String, url: URL, creator: String = "User", description: String = "", updatedTime: Date = Date()) {
+    init(id: String, playbackId: String, creator: String = "User", description: String = "", updatedTime: Date = Date()) {
         self.id = id
-        self.url = url
+        self.playbackId = playbackId
+        // Construct the Mux playback URL
+        self.url = URL(string: "https://stream.mux.com/\(playbackId).m3u8")!
         self.creator = creator
         self.description = description
         self.updatedTime = updatedTime
@@ -32,89 +34,64 @@ class VideoManager: ObservableObject {
     private var playerItemObserver: NSObjectProtocol?
     private var seenVideoIds: Set<String> = []  // Track seen videos
     
+    // List of Mux playback IDs
+    private let playbackIds = [
+        "TxjFnTaC2zZ9pjjfPFmZruhB2vl9jKgieTDCBS3JU34",
+        "taThfR9st3stsM57kclaDMUoFqXuQCyOn6VadyeLzkg",
+        "1CH100Su01ZPrW0201731jh02ztThU7ALWIPOAZ1BpEV02002s",
+        "00i2v700W231sYJZ02kbTho6hmzkw8l9Au4JDXN9HEpvbg"
+    ]
+    
+    // Helper function to create VideoItems from playback IDs
+    private func createVideoItems(from playbackIds: [String]) -> [VideoItem] {
+        return playbackIds.enumerated().map { (index, playbackId) in
+            VideoItem(
+                id: "video_\(index + 1)",
+                playbackId: playbackId,
+                creator: "Creator \(index + 1)",
+                description: "Video \(index + 1)",
+                updatedTime: Date().addingTimeInterval(-Double(index * 3600)) // Each video 1 hour apart
+            )
+        }
+    }
+    
+    // Computed property for fixed videos
+    private var fixedVideos: [VideoItem] {
+        createVideoItems(from: playbackIds)
+    }
+    
     init() {
         // Initialize with a dummy AVPlayer
         currentPlayer = AVPlayer()
         
-        // Load videos from Firebase
-        Task {
-            await loadVideosFromFirebase(initial: true)
-        }
+        // Load the fixed list of videos
+        loadVideosFromMux(initial: true)
     }
     
-    func loadVideosFromFirebase(initial: Bool = false) async {
-        print("🌐 Starting Firebase video list fetch...")
-        guard !isLoading else {
-            print("⚠️ Skipping fetch - already loading")
-            return
-        }
-        isLoading = true
-        defer { isLoading = false }
-        
-        let storageRef = Storage.storage().reference()
-        let videosRef = storageRef.child("videos")
-        
-        do {
-            let result = try await videosRef.listAll()
-            print("📋 Found \(result.items.count) videos in Firebase")
-            var newVideos: [VideoItem] = []
-            var totalDataSize: Int64 = 0
+    func loadVideosFromMux(initial: Bool = false) {
+        Task { @MainActor in
+            // If not initial load and we already have videos, don't reload
+            guard initial || videoStack.isEmpty else { return }
             
-            for item in result.items {
-                if !initial && seenVideoIds.contains(item.name) {
-                    print("⏭️ Skipping \(item.name) - already seen")
-                    continue
-                }
-                
-                do {
-                    print("📥 Fetching metadata for video: \(item.name)")
-                    let metadata = try await item.getMetadata()
-                    let size = metadata.size
-                    totalDataSize += size
-                    
-                    print("🔗 Getting download URL for video: \(item.name) (Size: \(formatFileSize(size)))")
-                    let url = try await item.downloadURL()
-                    
-                    let video = VideoItem(
-                        id: item.name,
-                        url: url,
-                        creator: metadata.customMetadata?["creator"] ?? "User",
-                        description: metadata.customMetadata?["description"] ?? "A cool video",
-                        updatedTime: metadata.updated ?? Date()
-                    )
-                    newVideos.append(video)
-                    print("✅ Successfully loaded video: \(item.name)")
-                } catch {
-                    print("❌ Error loading video \(item.name): \(error.localizedDescription)")
-                    continue
-                }
+            // Filter out any videos we've already seen
+            let newVideos = fixedVideos.filter { video in
+                initial || !seenVideoIds.contains(video.id)
             }
             
-            print("📊 Network usage summary:")
-            print("- Total videos loaded: \(newVideos.count)")
-            print("- Total metadata size: \(formatFileSize(totalDataSize))")
-            
-            // Sort by most recent
-            newVideos.sort(by: { $0.updatedTime > $1.updatedTime })
-            
-            await MainActor.run {
-                if initial {
-                    print("🔄 Setting initial video stack with \(newVideos.count) videos")
-                    self.videoStack = newVideos
-                } else {
-                    print("➕ Appending \(newVideos.count) new videos to stack")
-                    self.videoStack.append(contentsOf: newVideos)
-                }
-                
-                if self.currentPlayer.currentItem == nil, let firstVideo = self.videoStack.first {
-                    print("▶️ Loading first video: \(firstVideo.id)")
-                    let item = AVPlayerItem(url: firstVideo.url)
-                    self.currentPlayer.replaceCurrentItem(with: item)
-                    self.setupPlayerItem(item)
-                }
+            if initial {
+                print("🔄 Setting initial video stack with \(newVideos.count) videos")
+                self.videoStack = newVideos
+            } else {
+                print("➕ Appending \(newVideos.count) new videos to stack")
+                self.videoStack.append(contentsOf: newVideos)
             }
-        } catch {
-            print("❌ Error loading videos from Firebase: \(error.localizedDescription)")
+            
+            if self.currentPlayer.currentItem == nil, let firstVideo = self.videoStack.first {
+                print("▶️ Loading first video: \(firstVideo.id)")
+                let item = AVPlayerItem(url: firstVideo.url)
+                self.currentPlayer.replaceCurrentItem(with: item)
+                self.setupPlayerItem(item)
+            }
         }
     }
     
@@ -189,9 +166,7 @@ class VideoManager: ObservableObject {
         
         // If stack is getting low, load more videos
         if videoStack.count < 3 {
-            Task {
-                await loadVideosFromFirebase()
-            }
+            loadVideosFromMux()
         }
         
         // Reset seen videos if we've seen them all
