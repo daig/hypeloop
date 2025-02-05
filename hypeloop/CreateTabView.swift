@@ -211,6 +211,10 @@ struct CreateTabView: View {
     private func handleVideoSelection(_ newItem: PhotosPickerItem?) async {
         guard isAuthenticated else { return }
         
+        // Reset progress and upload state when selecting new video
+        uploadProgress = 0
+        isUploading = false
+        
         if let data = try? await newItem?.loadTransferable(type: Data.self) {
             let tempDir = FileManager.default.temporaryDirectory
             let fileName = "\(UUID().uuidString).mov"
@@ -327,21 +331,19 @@ struct CreateTabView: View {
             try? FileManager.default.removeItem(at: optimizedURL)
             try? FileManager.default.removeItem(at: videoURL)
             
-            // Update UI
-            alertMessage = "Video uploaded successfully! Upload ID: \(muxResponse.uploadId)"
-            showAlert = true
-            
             // Reset form
             selectedItem = nil
             selectedVideoURL = nil
             description = ""
+            isUploading = false
+            uploadProgress = 0
             
         } catch {
             alertMessage = "Upload failed: \(error.localizedDescription)"
             showAlert = true
+            isUploading = false
+            uploadProgress = 0
         }
-        
-        isUploading = false
     }
 }
 
