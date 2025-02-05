@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		CCAFE25A2D51AE9000F63530 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = CCAFE2592D51AE9000F63530 /* FirebaseAuth */; };
+		CCAFE25A2D51AE9000F63530 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = CCAFE2592D51AE9000F63530 /* FirebaseAuth */; settings = {ATTRIBUTES = (Required, ); }; };
 		CCAFE25C2D51AE9000F63530 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = CCAFE25B2D51AE9000F63530 /* FirebaseFirestore */; };
 		CCAFE27C2D52D0FF00F63530 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = CCAFE27B2D52D0FF00F63530 /* FirebaseStorage */; };
 		CCAFE27E2D531D2E00F63530 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = CCAFE27D2D531D2E00F63530 /* FirebaseFunctions */; };
@@ -17,9 +17,22 @@
 		CCDC88E72D516DE400C0AA78 /* hypeloop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = hypeloop.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		CC0512D82D53CF63003E89AC /* Exceptions for "hypeloop" folder in "hypeloop" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = CCDC88E62D516DE400C0AA78 /* hypeloop */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		CCDC88E92D516DE400C0AA78 /* hypeloop */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				CC0512D82D53CF63003E89AC /* Exceptions for "hypeloop" folder in "hypeloop" target */,
+			);
 			path = hypeloop;
 			sourceTree = "<group>";
 		};
@@ -273,7 +286,9 @@
 				DEVELOPMENT_ASSET_PATHS = "\"hypeloop/Preview Content\"";
 				DEVELOPMENT_TEAM = 8DWR7MSCR6;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = hypeloop/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -308,7 +323,9 @@
 				DEVELOPMENT_ASSET_PATHS = "\"hypeloop/Preview Content\"";
 				DEVELOPMENT_TEAM = 8DWR7MSCR6;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = hypeloop/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
