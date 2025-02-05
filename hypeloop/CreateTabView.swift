@@ -14,6 +14,27 @@ struct MuxUploadResponse: Codable {
     let fileSize: Int
 }
 
+class UploadProgressDelegate: NSObject, URLSessionTaskDelegate {
+    var onProgress: (Double) -> Void
+    
+    init(onProgress: @escaping (Double) -> Void) {
+        self.onProgress = onProgress
+    }
+    
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64,
+        totalBytesExpectedToSend: Int64
+    ) {
+        let progress = Double(totalBytesSent) / Double(totalBytesExpectedToSend) * 100
+        DispatchQueue.main.async {
+            self.onProgress(progress)
+        }
+    }
+}
+
 struct CreateTabView: View {
     @State private var selectedItem: PhotosPickerItem? = nil
     @State private var selectedVideoURL: URL? = nil
@@ -260,7 +281,13 @@ struct CreateTabView: View {
         request.httpMethod = "PUT"
         request.setValue("video/mp4", forHTTPHeaderField: "Content-Type")
         
-        let (_, response) = try await URLSession.shared.upload(for: request, from: data, delegate: nil)
+        let progressDelegate = UploadProgressDelegate { progress in
+            self.uploadProgress = progress
+        }
+        
+        let session = URLSession(configuration: .default, delegate: progressDelegate, delegateQueue: nil)
+        
+        let (_, response) = try await session.upload(for: request, from: data)
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
             throw NSError(domain: "MuxUpload", code: -1, userInfo: [NSLocalizedDescriptionKey: "Upload failed"])
