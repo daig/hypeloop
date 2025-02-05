@@ -11,6 +11,7 @@ import AVKit
 struct ContentView: View {
     @StateObject private var videoManager = VideoManager()
     @State private var selectedTab = 0
+    @Binding var isLoggedIn: Bool
     
     var body: some View {
         ZStack {
@@ -27,11 +28,11 @@ struct ContentView: View {
             .animation(.easeInOut, value: selectedTab)
             
             // Navigation Bar Overlay
-            NavigationBar(selectedTab: $selectedTab)
+            NavigationBar(selectedTab: $selectedTab, isLoggedIn: $isLoggedIn)
         }
     }
 }
 
 #Preview {
-    ContentView()
+    ContentView(isLoggedIn: .constant(true))
 }
