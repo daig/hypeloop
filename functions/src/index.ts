@@ -213,11 +213,28 @@ export const listMuxAssets = onCall({
                     // Parse the Unix timestamp (seconds) to milliseconds
                     const timestamp = parseInt(asset.created_at) * 1000;
                     
+                    // Parse the passthrough data
+                    let creator = "User";
+                    let description = "A cool video";
+                    try {
+                        if (asset.passthrough) {
+                            const metadata = JSON.parse(asset.passthrough);
+                            creator = metadata.creator || creator;
+                            description = metadata.description || description;
+                        }
+                    } catch (error) {
+                        logger.warn("Failed to parse passthrough data", { 
+                            requestId, 
+                            assetId: asset.id, 
+                            passthrough: asset.passthrough 
+                        });
+                    }
+                    
                     return {
                         id: asset.id,
                         playback_id: asset.playback_ids[0].id,
-                        creator: asset.metadata?.creator || "User",
-                        description: asset.metadata?.description || "A cool video",
+                        creator,
+                        description,
                         created_at: timestamp,
                         status: asset.status
                     };
