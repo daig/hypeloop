@@ -19,8 +19,6 @@ struct ContentView: View {
                 if selectedTab == 0 {
                     HomeTabView(videoManager: videoManager)
                 } else if selectedTab == 1 {
-                    SearchTabView()
-                } else if selectedTab == 2 {
                     SavedVideosTabView(videoManager: videoManager)
                 } else {
                     CreateTabView()

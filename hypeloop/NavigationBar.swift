@@ -6,19 +6,16 @@ struct NavigationBar: View {
     var body: some View {
         VStack {
             Spacer()
-            HStack(spacing: 40) {
+            HStack(spacing: 60) {
                 NavigationButton(iconName: "house.fill", label: "Home")
                     .onTapGesture { selectedTab = 0 }
                     .foregroundColor(selectedTab == 0 ? .white : .gray)
-                NavigationButton(iconName: "magnifyingglass", label: "Search")
+                NavigationButton(iconName: "bookmark.fill", label: "Saved")
                     .onTapGesture { selectedTab = 1 }
                     .foregroundColor(selectedTab == 1 ? .white : .gray)
-                NavigationButton(iconName: "bookmark.fill", label: "Saved")
+                NavigationButton(iconName: "video.badge.plus", label: "Create")
                     .onTapGesture { selectedTab = 2 }
                     .foregroundColor(selectedTab == 2 ? .white : .gray)
-                NavigationButton(iconName: "video.badge.plus", label: "Create")
-                    .onTapGesture { selectedTab = 3 }
-                    .foregroundColor(selectedTab == 3 ? .white : .gray)
             }
             .padding(.vertical, 10)
             .padding(.bottom, 20)
