@@ -7,6 +7,7 @@
 
 import SwiftUI
 import FirebaseAuth
+import AuthenticationServices
 
 struct LoginView: View {
     @Binding var isLoggedIn: Bool
@@ -45,6 +46,13 @@ struct LoginView: View {
             print("Debug - Unhandled error code: \(errorCode)")
             return "An error occurred. Please try again."
         }
+    }
+    
+    private func handleSignInWithApple() {
+        let request = authService.startSignInWithAppleFlow()
+        let authorizationController = ASAuthorizationController(authorizationRequests: [request])
+        authorizationController.delegate = SignInWithAppleDelegate(authService: authService, isLoggedIn: $isLoggedIn)
+        authorizationController.performRequests()
     }
     
     var body: some View {
@@ -95,6 +103,25 @@ struct LoginView: View {
                             .multilineTextAlignment(.center)
                     }
                     
+                    // Sign in with Apple button
+                    SignInWithAppleButton(
+                        onRequest: { request in
+                            request.requestedScopes = [.fullName, .email]
+                        },
+                        onCompletion: { result in
+                            Task {
+                                do {
+                                    try await authService.handleSignInWithAppleCompletion(result)
+                                    isLoggedIn = true
+                                } catch {
+                                    errorMessage = handleAuthError(error)
+                                }
+                            }
+                        }
+                    )
+                    .frame(height: 50)
+                    .padding(.horizontal)
+                    
                     Button(action: {
                         Task {
                             isLoading = true
@@ -144,6 +171,34 @@ struct LoginView: View {
                 .padding()
             }
         }
+    }
+}
+
+// Helper delegate class for Sign in with Apple
+private class SignInWithAppleDelegate: NSObject, ASAuthorizationControllerDelegate {
+    private let authService: AuthService
+    private let isLoggedIn: Binding<Bool>
+    
+    init(authService: AuthService, isLoggedIn: Binding<Bool>) {
+        self.authService = authService
+        self.isLoggedIn = isLoggedIn
+    }
+    
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        Task {
+            do {
+                try await authService.handleSignInWithAppleCompletion(.success(authorization))
+                DispatchQueue.main.async {
+                    self.isLoggedIn.wrappedValue = true
+                }
+            } catch {
+                print("Error during Apple sign in: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        print("Sign in with Apple error: \(error.localizedDescription)")
     }
 }
 
