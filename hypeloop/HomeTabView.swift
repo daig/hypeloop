@@ -12,32 +12,6 @@ struct HomeTabView: View {
             // Video Player Layer
             SwipeableVideoPlayer(videoManager: videoManager)
                 .ignoresSafeArea()
-            
-            // Video Info Overlay at bottom
-            VStack {
-                Spacer()
-                VStack(alignment: .leading, spacing: 8) {
-                    if let currentVideo = videoManager.videoStack.first {
-                        Text("@\(currentVideo.creator)")
-                            .font(.headline)
-                            .bold()
-                        Text(currentVideo.description)
-                            .font(.subheadline)
-                            .lineLimit(2)
-                    }
-                }
-                .foregroundColor(.white)
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    LinearGradient(
-                        gradient: Gradient(colors: [.clear, .black.opacity(0.6)]),
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .padding(.bottom, 49) // Adjusted to align with navigation bar
-            }
         }
     }
 }

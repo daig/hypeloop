@@ -135,6 +135,36 @@ struct SwipeableVideoPlayer: View {
                                 AutoplayVideoPlayer(player: videoManager.currentPlayer)
                                     .clipShape(RoundedRectangle(cornerRadius: 20))
                                     .padding(.top, 60)
+                                
+                                // Author and description overlay
+                                VStack {
+                                    Spacer()
+                                    // Gradient background for bottom half of card
+                                    ZStack(alignment: .bottom) {
+                                        LinearGradient(
+                                            gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
+                                            startPoint: UnitPoint(x: 0.5, y: 0.3),
+                                            endPoint: .bottom
+                                        )
+                                        
+                                        // Text content
+                                        if let currentVideo = videoManager.videoStack.first {
+                                            VStack(alignment: .leading, spacing: 8) {
+                                                Text("@\(currentVideo.creator)")
+                                                    .font(.headline)
+                                                    .bold()
+                                                Text(currentVideo.description)
+                                                    .font(.subheadline)
+                                                    .lineLimit(2)
+                                            }
+                                            .foregroundColor(.white)
+                                            .padding()
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .padding(.bottom, 80)
+                                        }
+                                    }
+                                    .frame(height: geometry.size.height / 2)
+                                }
                             }
                             .frame(width: geometry.size.width - cardSpacing * 2, height: geometry.size.height - cardSpacing * 2)
                             .offset(x: offset.width + dragOffset.width, y: offset.height + dragOffset.height)
