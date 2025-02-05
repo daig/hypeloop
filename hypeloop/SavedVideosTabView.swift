@@ -39,7 +39,8 @@ struct SavedVideosTabView: View {
                                         Rectangle()
                                             .fill(Color.gray.opacity(0.3))
                                     }
-                                    .frame(height: 280)
+                                    .frame(width: (UIScreen.main.bounds.width - 36) / 2, height: 280)
+                                    .clipped()
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                                     
                                     // Gradient overlay
@@ -48,16 +49,22 @@ struct SavedVideosTabView: View {
                                         startPoint: .top,
                                         endPoint: .bottom
                                     )
+                                    .frame(width: (UIScreen.main.bounds.width - 36) / 2, height: 280)
                                     
                                     // Text overlay
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text("@\(video.creator)")
                                             .font(.headline)
                                             .bold()
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(maxWidth: (UIScreen.main.bounds.width - 36) / 2 - 24, alignment: .leading)
                                         
                                         Text(video.description)
                                             .font(.subheadline)
                                             .lineLimit(2)
+                                            .truncationMode(.tail)
+                                            .frame(maxWidth: (UIScreen.main.bounds.width - 36) / 2 - 24, alignment: .leading)
                                         
                                         // Download button
                                         if let progress = downloadProgress[video.id], progress < 1.0 {
@@ -65,10 +72,12 @@ struct SavedVideosTabView: View {
                                                 ProgressView(value: progress)
                                                     .progressViewStyle(.linear)
                                                     .tint(.blue)
+                                                    .frame(maxWidth: (UIScreen.main.bounds.width - 36) / 2 - 24)
                                                 
                                                 HStack {
                                                     Text("\(Int(progress * 100))%")
                                                         .font(.caption)
+                                                        .lineLimit(1)
                                                     
                                                     Spacer()
                                                     
@@ -90,10 +99,12 @@ struct SavedVideosTabView: View {
                                                 HStack {
                                                     Image(systemName: copiedVideoId == video.id ? "checkmark" : "arrow.down.circle")
                                                     Text(copiedVideoId == video.id ? "Copied!" : "Download Video")
+                                                        .lineLimit(1)
                                                 }
                                                 .foregroundColor(.white)
                                                 .font(.caption)
                                             }
+                                            .frame(maxWidth: (UIScreen.main.bounds.width - 36) / 2 - 24, alignment: .leading)
                                             .simultaneousGesture(
                                                 LongPressGesture(minimumDuration: 0.5).onEnded { _ in
                                                     UIPasteboard.general.string = video.url.absoluteString
@@ -111,6 +122,7 @@ struct SavedVideosTabView: View {
                                     }
                                     .padding(12)
                                 }
+                                .frame(width: (UIScreen.main.bounds.width - 36) / 2, height: 280)
                                 .contextMenu {
                                     Button(role: .destructive) {
                                         if let index = videoManager.savedVideos.firstIndex(where: { $0.id == video.id }) {
