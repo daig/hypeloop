@@ -11,9 +11,9 @@ import AuthenticationServices
 
 struct LoginView: View {
     @Binding var isLoggedIn: Bool
-    @StateObject private var authService = AuthService.shared
-    @State private var showSignUp = false
+    @StateObject private var authService = AuthService.shared  // Use the shared instance.
     
+    @State private var showSignUp = false
     @State private var email: String = ""
     @State private var password: String = ""
     @State private var errorMessage: String = ""
@@ -23,12 +23,10 @@ struct LoginView: View {
         let nsError = error as NSError
         print("Debug - Error code: \(nsError.code), Domain: \(nsError.domain)")
         
-        // Handle the generic "malformed credential" error which is now used for both wrong password and non-existent user
         if nsError.localizedDescription.contains("malformed or has expired") {
             return "Invalid email or password. Please check your credentials and try again."
         }
         
-        // Handle other specific cases that are still reported
         guard let errorCode = AuthErrorCode(_bridgedNSError: nsError) else {
             return "An error occurred. Please try again later."
         }
@@ -48,28 +46,21 @@ struct LoginView: View {
         }
     }
     
-    private func handleSignInWithApple() {
-        let request = authService.startSignInWithAppleFlow()
-        let authorizationController = ASAuthorizationController(authorizationRequests: [request])
-        authorizationController.delegate = SignInWithAppleDelegate(authService: authService, isLoggedIn: $isLoggedIn)
-        authorizationController.performRequests()
-    }
-    
     var body: some View {
         NavigationStack {
             ZStack {
-                // Full-page background image using hypeloopLogo
+                // Background image
                 GeometryReader { geometry in
                     Image("hypeloopLogo")
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: geometry.size.width * 1.2, height: geometry.size.height)
                         .clipped()
-                        .position(x: geometry.size.width/2, y: geometry.size.height/2)
+                        .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
                         .ignoresSafeArea()
                 }
                 .ignoresSafeArea()
-
+                
                 // Login form overlay
                 VStack(spacing: 20) {
                     Spacer()
@@ -103,10 +94,11 @@ struct LoginView: View {
                             .multilineTextAlignment(.center)
                     }
                     
-                    // Sign in with Apple button
+                    // Sign in with Apple button:
                     SignInWithAppleButton(
                         onRequest: { request in
-                            request.requestedScopes = [.fullName, .email]
+                            // Call the AuthService helper using the instance directly.
+                            authService.handleSignInWithAppleRequest(request)
                         },
                         onCompletion: { result in
                             Task {
@@ -119,9 +111,11 @@ struct LoginView: View {
                             }
                         }
                     )
+                    .signInWithAppleButtonStyle(.black)
                     .frame(height: 50)
                     .padding(.horizontal)
                     
+                    // Email/Password login button.
                     Button(action: {
                         Task {
                             isLoading = true
@@ -165,40 +159,11 @@ struct LoginView: View {
                             .foregroundColor(.white)
                     }
                     .padding(.top, 10)
-                    
                     .padding(.bottom, 50)
                 }
                 .padding()
             }
         }
-    }
-}
-
-// Helper delegate class for Sign in with Apple
-private class SignInWithAppleDelegate: NSObject, ASAuthorizationControllerDelegate {
-    private let authService: AuthService
-    private let isLoggedIn: Binding<Bool>
-    
-    init(authService: AuthService, isLoggedIn: Binding<Bool>) {
-        self.authService = authService
-        self.isLoggedIn = isLoggedIn
-    }
-    
-    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
-        Task {
-            do {
-                try await authService.handleSignInWithAppleCompletion(.success(authorization))
-                DispatchQueue.main.async {
-                    self.isLoggedIn.wrappedValue = true
-                }
-            } catch {
-                print("Error during Apple sign in: \(error.localizedDescription)")
-            }
-        }
-    }
-    
-    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-        print("Sign in with Apple error: \(error.localizedDescription)")
     }
 }
 
