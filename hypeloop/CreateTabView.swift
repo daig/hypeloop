@@ -23,16 +23,9 @@ struct CreateTabView: View {
     @State private var showAlert = false
     @State private var alertMessage = ""
     @State private var currentUploadId: String? = nil
-    @State private var testResults: [[String: Any]] = []
-    @State private var isLoadingTest = false
-    @State private var testError: String? = nil
-    @State private var currentTestTask: Task<Void, Never>? = nil
     
     // Shared Functions instance
     private let functions = Functions.functions(region: "us-central1")
-    
-    // Last test timestamp to enforce delay between calls
-    @State private var lastTestTimestamp: Date?
     
     private var isAuthenticated: Bool {
         Auth.auth().currentUser != nil
@@ -52,74 +45,6 @@ struct CreateTabView: View {
             uploadProgressView
             descriptionField
             uploadButton
-            
-            // Test section for listMuxAssets
-            VStack(spacing: 10) {
-                Button(action: {
-                    // Cancel any existing task
-                    currentTestTask?.cancel()
-                    
-                    // Create a new task
-                    currentTestTask = Task {
-                        await testListMuxAssets()
-                    }
-                }) {
-                    HStack {
-                        if isLoadingTest {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        }
-                        Text(isLoadingTest ? "Loading..." : "Test listMuxAssets")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(
-                        LinearGradient(
-                            gradient: Gradient(colors: [
-                                Color(red: 0.2, green: 0.3, blue: 0.3),
-                                Color(red: 0.3, green: 0.3, blue: 0.4)
-                            ]),
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
-                }
-                
-                if let error = testError {
-                    Text("Error: \(error)")
-                        .foregroundColor(.red)
-                        .font(.caption)
-                }
-                
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 15) {
-                        ForEach(testResults.indices, id: \.self) { index in
-                            let result = testResults[index]
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text("Result \(index + 1):")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
-                                ForEach(Array(result.keys.sorted()), id: \.self) { key in
-                                    HStack {
-                                        Text(key)
-                                            .foregroundColor(.gray)
-                                        Spacer()
-                                        Text("\(String(describing: result[key] ?? "nil"))")
-                                            .foregroundColor(.white)
-                                    }
-                                }
-                            }
-                            .padding()
-                            .background(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
-                            .cornerRadius(8)
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-                .frame(maxHeight: 300)
-            }
             
             Spacer()
         }
@@ -390,103 +315,6 @@ struct CreateTabView: View {
         }
         
         isUploading = false
-    }
-    
-    // MARK: - Test Functions
-    
-    private func testListMuxAssets() async {
-        // Prevent multiple calls while already loading
-        guard !isLoadingTest else {
-            print("⚠️ Test already in progress")
-            return
-        }
-        
-        guard isAuthenticated else {
-            testError = "Must be authenticated"
-            return
-        }
-        
-        // Enforce minimum delay between calls
-        if let lastTest = lastTestTimestamp {
-            let timeSinceLastTest = Date().timeIntervalSince(lastTest)
-            if timeSinceLastTest < 2.0 { // 2 second minimum delay
-                let waitTime = 2.0 - timeSinceLastTest
-                print("⏳ Waiting \(String(format: "%.1f", waitTime))s before next test...")
-                try? await Task.sleep(nanoseconds: UInt64(waitTime * 1_000_000_000))
-            }
-        }
-        
-        await MainActor.run {
-            isLoadingTest = true
-            testError = nil
-            testResults = []
-            lastTestTimestamp = Date()
-        }
-        
-        do {
-            print("📡 Starting listMuxAssets test call...")
-            
-            // Check if task was cancelled
-            if Task.isCancelled {
-                print("❌ Test was cancelled before making the call")
-                return
-            }
-            
-            // Create a new callable for each request
-            let callable = functions.httpsCallable("listMuxAssets")
-            
-            let result = try await callable.call([
-                "debug": true,
-                "timestamp": Date().timeIntervalSince1970,
-                "client": "ios-test",
-                "requestId": UUID().uuidString // Add unique request ID
-            ])
-            
-            // Check if task was cancelled
-            if Task.isCancelled {
-                print("❌ Test was cancelled after receiving response")
-                return
-            }
-            
-            print("✅ Received response from listMuxAssets")
-            
-            if let response = result.data as? [String: Any],
-               let data = response["videos"] as? [[String: Any]] {
-                print("📊 Successfully parsed \(data.count) results")
-                if !Task.isCancelled {
-                    await MainActor.run {
-                        testResults = data
-                    }
-                }
-            } else {
-                let errorMsg = "Invalid response format: \(String(describing: result.data))"
-                print("❌ \(errorMsg)")
-                if !Task.isCancelled {
-                    await MainActor.run {
-                        testError = errorMsg
-                    }
-                }
-            }
-        } catch {
-            print("❌ Test error: \(error.localizedDescription)")
-            if let nsError = error as? NSError {
-                print("🔍 Error details - Domain: \(nsError.domain), Code: \(nsError.code)")
-                if let details = nsError.userInfo["details"] as? [String: Any] {
-                    print("📝 Error details: \(details)")
-                }
-            }
-            if !Task.isCancelled {
-                await MainActor.run {
-                    testError = error.localizedDescription
-                }
-            }
-        }
-        
-        if !Task.isCancelled {
-            await MainActor.run {
-                isLoadingTest = false
-            }
-        }
     }
 }
 
