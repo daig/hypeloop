@@ -3,6 +3,16 @@ import PhotosUI
 import AVKit
 import FirebaseStorage
 import AVFoundation
+import FirebaseFunctions
+import FirebaseAuth
+
+struct MuxUploadResponse: Codable {
+    let uploadUrl: String
+    let uploadId: String
+    let filename: String
+    let contentType: String
+    let fileSize: Int
+}
 
 struct CreateTabView: View {
     @State private var selectedItem: PhotosPickerItem? = nil
@@ -12,100 +22,46 @@ struct CreateTabView: View {
     @State private var uploadProgress: Double = 0.0
     @State private var showAlert = false
     @State private var alertMessage = ""
-    @State private var videoList: [StorageVideo] = []
-    @State private var isLoadingList = false
-    @State private var copiedVideoName: String? = nil
+    @State private var currentUploadId: String? = nil
     
-    struct StorageVideo: Identifiable {
-        let id = UUID()
-        let name: String
-        let path: String
-        let size: Int64
-        let updatedTime: Date
-        var downloadURL: URL?
-        var isLoadingURL: Bool = false
+    private var isAuthenticated: Bool {
+        Auth.auth().currentUser != nil
     }
     
-    var body: some View {
-        NavigationView {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                
-                VStack(spacing: 20) {
-                    PhotosPicker(
-                        selection: $selectedItem,
-                        matching: .videos,
-                        photoLibrary: .shared()
-                    ) {
-                        VStack {
-                            Image(systemName: "video.badge.plus")
-                                .font(.system(size: 40))
-                            Text("Select Video")
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
-                        .cornerRadius(12)
-                        .foregroundColor(.white)
+    // MARK: - View Components
+    
+    private var mainContent: some View {
+        VStack(spacing: 20) {
+            videoPickerButton
+                .onChange(of: selectedItem) { newItem in
+                    Task {
+                        await handleVideoSelection(newItem)
                     }
-                    .padding(.horizontal)
-                    .onChange(of: selectedItem) { newItem in
-                        Task {
-                            if let data = try? await newItem?.loadTransferable(type: Data.self) {
-                                // Create a temporary file URL
-                                let tempDir = FileManager.default.temporaryDirectory
-                                let fileName = "\(UUID().uuidString).mov"
-                                let fileURL = tempDir.appendingPathComponent(fileName)
-                                
-                                do {
-                                    try data.write(to: fileURL)
-                                    selectedVideoURL = fileURL
-                                } catch {
-                                    print("Error saving video: \(error.localizedDescription)")
-                                    alertMessage = "Failed to process video"
-                                    showAlert = true
-                                }
-                            }
-                        }
-                    }
-                    
-                    if let _ = selectedVideoURL {
-                        if isUploading {
-                            VStack {
-                                ProgressView("Uploading...", value: uploadProgress, total: 100)
-                                    .progressViewStyle(.linear)
-                                    .foregroundColor(.white)
-                                Text("\(Int(uploadProgress))%")
-                                    .foregroundColor(.white)
-                            }
-                            .padding()
-                        }
-                    }
-                    
-                    TextField("Add description...", text: $description)
-                        .textFieldStyle(PlainTextFieldStyle())
-                        .padding()
-                        .background(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
-                        .cornerRadius(8)
-                        .padding(.horizontal)
-                        .foregroundColor(.white)
-                    
-                    Button(action: {
-                        Task {
-                            await uploadVideo()
-                        }
-                    }) {
-                        if isUploading {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                        } else {
-                            Text("Upload")
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                        }
-                    }
+                }
+            
+            uploadProgressView
+            descriptionField
+            uploadButton
+            
+            Spacer()
+        }
+        .padding(.top, 20)
+    }
+    
+    private var loginPrompt: some View {
+        VStack(spacing: 20) {
+            Text("Sign In Required")
+                .font(.title2)
+                .foregroundColor(.white)
+            
+            Text("You need to be signed in to upload videos")
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+            
+            NavigationLink(destination: LoginView(isLoggedIn: .constant(false))) {
+                Text("Sign In")
+                    .frame(maxWidth: .infinity)
+                    .padding()
                     .background(
                         LinearGradient(
                             gradient: Gradient(colors: [
@@ -118,95 +74,100 @@ struct CreateTabView: View {
                     )
                     .foregroundColor(.white)
                     .cornerRadius(8)
-                    .padding(.horizontal)
-                    .disabled(selectedVideoURL == nil || description.isEmpty || isUploading)
-                    
-                    Divider()
-                        .background(Color.gray)
-                        .padding(.horizontal)
-                    
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("Uploaded Videos")
-                                .foregroundColor(.white)
-                                .font(.headline)
-                            
-                            Spacer()
-                            
-                            Button(action: {
-                                Task {
-                                    await loadVideoList()
-                                }
-                            }) {
-                                Image(systemName: "arrow.clockwise")
-                                    .foregroundColor(.white)
-                            }
-                        }
-                        .padding(.horizontal)
-                        
-                        if isLoadingList {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .frame(maxWidth: .infinity)
-                        } else {
-                            ScrollView {
-                                LazyVStack(alignment: .leading, spacing: 12) {
-                                    ForEach(videoList) { video in
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(video.name)
-                                                .foregroundColor(.white)
-                                                .font(.subheadline)
-                                            Text("Size: \(formatFileSize(video.size))")
-                                                .foregroundColor(.gray)
-                                                .font(.caption)
-                                            Text("Updated: \(formatDate(video.updatedTime))")
-                                                .foregroundColor(.gray)
-                                                .font(.caption)
-                                            
-                                            if let url = video.downloadURL {
-                                                Button(action: {
-                                                    UIPasteboard.general.string = url.absoluteString
-                                                    copiedVideoName = video.name
-                                                    
-                                                    // Reset the copied status after 2 seconds
-                                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                                        if copiedVideoName == video.name {
-                                                            copiedVideoName = nil
-                                                        }
-                                                    }
-                                                }) {
-                                                    HStack {
-                                                        Image(systemName: copiedVideoName == video.name ? "checkmark" : "link")
-                                                        Text(copiedVideoName == video.name ? "Copied!" : "Copy Download Link")
-                                                    }
-                                                    .foregroundColor(.blue)
-                                                    .font(.caption)
-                                                }
-                                            } else if video.isLoadingURL {
-                                                ProgressView()
-                                                    .scaleEffect(0.7)
-                                            } else {
-                                                Button(action: {
-                                                    Task {
-                                                        await fetchDownloadURL(for: video)
-                                                    }
-                                                }) {
-                                                    Text("Get Download Link")
-                                                        .foregroundColor(.blue)
-                                                        .font(.caption)
-                                                }
-                                            }
-                                        }
-                                        .padding(.horizontal)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    Spacer()
+            }
+            .padding(.horizontal)
+        }
+        .padding()
+    }
+    
+    private var videoPickerButton: some View {
+        PhotosPicker(
+            selection: $selectedItem,
+            matching: .videos,
+            photoLibrary: .shared()
+        ) {
+            VStack {
+                Image(systemName: "video.badge.plus")
+                    .font(.system(size: 40))
+                Text("Select Video")
+            }
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
+            .cornerRadius(12)
+            .foregroundColor(.white)
+        }
+        .padding(.horizontal)
+    }
+    
+    private var uploadProgressView: some View {
+        Group {
+            if selectedVideoURL != nil && isUploading {
+                VStack {
+                    ProgressView("Uploading...", value: uploadProgress, total: 100)
+                        .progressViewStyle(.linear)
+                        .foregroundColor(.white)
+                    Text("\(Int(uploadProgress))%")
+                        .foregroundColor(.white)
                 }
-                .padding(.top, 20)
+                .padding()
+            }
+        }
+    }
+    
+    private var descriptionField: some View {
+        TextField("Add description...", text: $description)
+            .textFieldStyle(PlainTextFieldStyle())
+            .padding()
+            .background(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
+            .cornerRadius(8)
+            .padding(.horizontal)
+            .foregroundColor(.white)
+    }
+    
+    private var uploadButton: some View {
+        Button(action: {
+            Task {
+                await uploadVideo()
+            }
+        }) {
+            if isUploading {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .frame(maxWidth: .infinity)
+                    .padding()
+            } else {
+                Text("Upload")
+                    .frame(maxWidth: .infinity)
+                    .padding()
+            }
+        }
+        .background(
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    Color(red: 0.2, green: 0.2, blue: 0.3),
+                    Color(red: 0.3, green: 0.2, blue: 0.4)
+                ]),
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        )
+        .foregroundColor(.white)
+        .cornerRadius(8)
+        .padding(.horizontal)
+        .disabled(selectedVideoURL == nil || description.isEmpty || isUploading)
+    }
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                if isAuthenticated {
+                    mainContent
+                } else {
+                    loginPrompt
+                }
             }
             .navigationTitle("Create")
             .navigationBarTitleDisplayMode(.inline)
@@ -218,73 +179,27 @@ struct CreateTabView: View {
             } message: {
                 Text(alertMessage)
             }
-            .task {
-                await loadVideoList()
-            }
         }
     }
     
-    private func formatFileSize(_ size: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useKB, .useMB, .useGB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: size)
-    }
+    // MARK: - Helper Functions
     
-    private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
-    
-    private func fetchDownloadURL(for video: StorageVideo) async {
-        guard let index = videoList.firstIndex(where: { $0.id == video.id }) else { return }
+    private func handleVideoSelection(_ newItem: PhotosPickerItem?) async {
+        guard isAuthenticated else { return }
         
-        // Set loading state
-        videoList[index].isLoadingURL = true
-        
-        let storageRef = Storage.storage().reference()
-        let videoRef = storageRef.child(video.path)
-        
-        do {
-            let url = try await videoRef.downloadURL()
-            videoList[index].downloadURL = url
-        } catch {
-            print("Error getting download URL: \(error.localizedDescription)")
-        }
-        
-        videoList[index].isLoadingURL = false
-    }
-    
-    private func loadVideoList() async {
-        isLoadingList = true
-        defer { isLoadingList = false }
-        
-        let storageRef = Storage.storage().reference()
-        let videosRef = storageRef.child("videos")
-        
-        do {
-            let result = try await videosRef.listAll()
-            var videos: [StorageVideo] = []
+        if let data = try? await newItem?.loadTransferable(type: Data.self) {
+            let tempDir = FileManager.default.temporaryDirectory
+            let fileName = "\(UUID().uuidString).mov"
+            let fileURL = tempDir.appendingPathComponent(fileName)
             
-            for item in result.items {
-                let metadata = try await item.getMetadata()
-                let video = StorageVideo(
-                    name: item.name,
-                    path: item.fullPath,
-                    size: metadata.size,
-                    updatedTime: metadata.updated ?? Date()
-                )
-                videos.append(video)
+            do {
+                try data.write(to: fileURL)
+                selectedVideoURL = fileURL
+            } catch {
+                print("Error saving video: \(error.localizedDescription)")
+                alertMessage = "Failed to process video"
+                showAlert = true
             }
-            
-            // Sort by most recent first
-            videoList = videos.sorted { $0.updatedTime > $1.updatedTime }
-        } catch {
-            print("Error loading video list: \(error.localizedDescription)")
-            alertMessage = "Failed to load video list"
-            showAlert = true
         }
     }
     
@@ -295,79 +210,13 @@ struct CreateTabView: View {
         let asset = AVAsset(url: sourceURL)
         guard let exportSession = AVAssetExportSession(
             asset: asset,
-            presetName: AVAssetExportPreset1920x1080 // We'll resize in composition
+            presetName: AVAssetExportPreset1920x1080
         ) else {
             throw NSError(domain: "VideoExport", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create export session"])
         }
         
-        // Configure video compression settings
-        let compressionDict: [String: Any] = [
-            AVVideoAverageBitRateKey: 2_000_000, // 2 Mbps
-            AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
-            AVVideoH264EntropyModeKey: AVVideoH264EntropyModeCABAC
-        ]
-        
-        // Target dimensions for 19.5:9 aspect ratio (iPhone style)
-        let targetWidth: CGFloat = 1080 // Base width
-        let targetHeight: CGFloat = 2340 // Maintains 19.5:9 ratio
-        
-        let videoSettings: [String: Any] = [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: targetWidth,
-            AVVideoHeightKey: targetHeight,
-            AVVideoCompressionPropertiesKey: compressionDict
-        ]
-        
-        // Configure audio settings
-        let audioSettings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: 44100,
-            AVNumberOfChannelsKey: 2,
-            AVEncoderBitRateKey: 128000 // 128 kbps
-        ]
-        
         exportSession.outputURL = outputURL
         exportSession.outputFileType = .mp4
-        
-        // Create video composition
-        let tracks = try await asset.loadTracks(withMediaType: .video)
-        guard let track = tracks.first else {
-            throw NSError(domain: "VideoExport", code: -1, userInfo: [NSLocalizedDescriptionKey: "No video track found"])
-        }
-        
-        let composition = AVMutableVideoComposition()
-        composition.renderSize = CGSize(width: targetWidth, height: targetHeight)
-        composition.frameDuration = CMTime(value: 1, timescale: 30) // 30 fps
-        
-        let naturalSize = try await track.load(.naturalSize)
-        let transform = try await track.load(.preferredTransform)
-        
-        // Calculate scaling to fill height while maintaining aspect ratio
-        let scaleX = targetWidth / naturalSize.width
-        let scaleY = targetHeight / naturalSize.height
-        let scale = max(scaleX, scaleY) // Use max to ensure video fills the frame
-        
-        let scaledWidth = naturalSize.width * scale
-        let scaledHeight = naturalSize.height * scale
-        let x = (targetWidth - scaledWidth) / 2
-        let y = (targetHeight - scaledHeight) / 2
-        
-        // Create composition instruction
-        let instruction = AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRange(start: .zero, duration: try await asset.load(.duration))
-        
-        let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
-        
-        // Apply transform and scaling
-        var finalTransform = transform
-        finalTransform = finalTransform.translatedBy(x: x, y: y)
-        finalTransform = finalTransform.scaledBy(x: scale, y: scale)
-        
-        layerInstruction.setTransform(finalTransform, at: .zero)
-        instruction.layerInstructions = [layerInstruction]
-        composition.instructions = [instruction]
-        
-        exportSession.videoComposition = composition
         exportSession.shouldOptimizeForNetworkUse = true
         
         await exportSession.export()
@@ -379,7 +228,44 @@ struct CreateTabView: View {
         return outputURL
     }
     
+    private func getMuxUploadUrl(filename: String, fileSize: Int, contentType: String) async throws -> MuxUploadResponse {
+        guard isAuthenticated else {
+            throw NSError(domain: "MuxUpload", code: -1, userInfo: [NSLocalizedDescriptionKey: "You must be logged in to upload videos"])
+        }
+        
+        let functions = Functions.functions(region: "us-central1")
+        
+        let data: [String: Any] = [
+            "filename": filename,
+            "fileSize": fileSize,
+            "contentType": contentType
+        ]
+        
+        let result = try await functions.httpsCallable("getVideoUploadUrl").call(data)
+        guard let response = try? JSONSerialization.data(withJSONObject: result.data) else {
+            throw NSError(domain: "MuxUpload", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response format"])
+        }
+        
+        return try JSONDecoder().decode(MuxUploadResponse.self, from: response)
+    }
+    
+    private func uploadToMux(videoURL: URL, uploadURL: String) async throws {
+        let data = try Data(contentsOf: videoURL)
+        
+        var request = URLRequest(url: URL(string: uploadURL)!)
+        request.httpMethod = "PUT"
+        request.setValue("video/mp4", forHTTPHeaderField: "Content-Type")
+        
+        let (_, response) = try await URLSession.shared.upload(for: request, from: data, delegate: nil)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MuxUpload", code: -1, userInfo: [NSLocalizedDescriptionKey: "Upload failed"])
+        }
+    }
+    
     private func uploadVideo() async {
+        guard isAuthenticated else { return }
+        
         guard let videoURL = selectedVideoURL else { return }
         
         isUploading = true
@@ -389,55 +275,42 @@ struct CreateTabView: View {
             // Optimize video before upload
             let optimizedURL = try await optimizeVideo(from: videoURL)
             
-            // Create a reference to Firebase Storage
-            let storageRef = Storage.storage().reference()
-            let videoRef = storageRef.child("videos/\(UUID().uuidString).mp4")
+            // Get file size and prepare for upload
+            let fileAttributes = try FileManager.default.attributesOfItem(atPath: optimizedURL.path)
+            let fileSize = fileAttributes[FileAttributeKey.size] as? Int ?? 0
             
-            // Start the file upload
-            let uploadTask = videoRef.putFile(from: optimizedURL, metadata: nil) { metadata, error in
-                // Clean up the temporary files
-                try? FileManager.default.removeItem(at: optimizedURL)
-                try? FileManager.default.removeItem(at: videoURL)
-                
-                isUploading = false
-                
-                if let error = error {
-                    alertMessage = "Upload failed: \(error.localizedDescription)"
-                    showAlert = true
-                    return
-                }
-                
-                // Retrieve the download URL
-                videoRef.downloadURL { url, error in
-                    if let error = error {
-                        alertMessage = "Failed to get download URL: \(error.localizedDescription)"
-                        showAlert = true
-                        return
-                    }
-                    if let downloadURL = url {
-                        print("Video uploaded successfully: \(downloadURL.absoluteString)")
-                        alertMessage = "Video uploaded successfully!"
-                        showAlert = true
-                        
-                        // Reset the form
-                        selectedItem = nil
-                        selectedVideoURL = nil
-                        description = ""
-                    }
-                }
-            }
+            // Get Mux upload URL
+            let muxResponse = try await getMuxUploadUrl(
+                filename: optimizedURL.lastPathComponent,
+                fileSize: fileSize,
+                contentType: "video/mp4"
+            )
             
-            // Monitor upload progress
-            uploadTask.observe(.progress) { snapshot in
-                if let progress = snapshot.progress {
-                    uploadProgress = progress.fractionCompleted * 100
-                }
-            }
+            print("Got Mux upload ID: \(muxResponse.uploadId)")
+            currentUploadId = muxResponse.uploadId
+            
+            // Upload to Mux
+            try await uploadToMux(videoURL: optimizedURL, uploadURL: muxResponse.uploadUrl)
+            
+            // Clean up temporary files
+            try? FileManager.default.removeItem(at: optimizedURL)
+            try? FileManager.default.removeItem(at: videoURL)
+            
+            // Update UI
+            alertMessage = "Video uploaded successfully! Upload ID: \(muxResponse.uploadId)"
+            showAlert = true
+            
+            // Reset form
+            selectedItem = nil
+            selectedVideoURL = nil
+            description = ""
+            
         } catch {
-            isUploading = false
-            alertMessage = "Failed to process video: \(error.localizedDescription)"
+            alertMessage = "Upload failed: \(error.localizedDescription)"
             showAlert = true
         }
+        
+        isUploading = false
     }
 }
 
