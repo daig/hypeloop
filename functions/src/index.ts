@@ -108,98 +108,170 @@ export const getVideoUploadUrl = onCall({
 // Function to list all videos from Mux
 export const listMuxAssets = onCall({
     maxInstances: 1,
-    enforceAppCheck: false,  // You can enable this later for additional security
+    enforceAppCheck: false,
     region: 'us-central1'
 }, async (request) => {
     const debug = request.data?.debug === true;
     const client = request.data?.client || 'unknown';
     const timestamp = request.data?.timestamp || Date.now();
+    const requestId = request.data?.requestId || 'no-id';
 
-    logger.info("Starting listMuxAssets function", {
+    // Log initial request details
+    logger.info("🚀 Starting listMuxAssets function", {
         debug,
         client,
         timestamp,
-        auth: !!request.auth
+        requestId,
+        auth: !!request.auth,
+        requestData: request.data
     });
 
     try {
         // Check if the user is authenticated
         if (!request.auth) {
+            logger.warn("❌ Authentication missing", { requestId });
             throw new HttpsError(
                 "unauthenticated",
                 "The function must be called while authenticated."
             );
         }
 
+        logger.info("✅ Authentication verified", { 
+            requestId,
+            uid: request.auth.uid 
+        });
+
         // Initialize Mux client with credentials at runtime
+        if (!muxTokenId.value() || !muxTokenSecret.value()) {
+            logger.error("❌ Missing Mux credentials", { 
+                requestId,
+                hasMuxTokenId: !!muxTokenId.value(),
+                hasMuxTokenSecret: !!muxTokenSecret.value()
+            });
+            throw new HttpsError(
+                "failed-precondition",
+                "Mux credentials not configured"
+            );
+        }
+
         const muxClient = new Mux({
             tokenId: muxTokenId.value(),
             tokenSecret: muxTokenSecret.value(),
         });
 
-        logger.info("Mux client initialized, fetching assets...");
+        logger.info("✅ Mux client initialized", { requestId });
 
         try {
-            // List all assets
-            const {data: assets} = await muxClient.video.assets.list({
-                limit: 50, // Adjust this value based on your needs
+            // List all assets with a timeout
+            logger.info("📡 Making Mux API request", { requestId });
+            
+            const assetsPromise = muxClient.video.assets.list({
+                limit: 50,
                 page: 1
             });
 
-            logger.info(`Successfully fetched ${assets.length} assets from Mux`);
-
-            if (debug) {
-                logger.debug("First asset sample:", {
-                    sample: assets[0] ? {
-                        id: assets[0].id,
-                        playback_ids: assets[0].playback_ids,
-                        status: assets[0].status,
-                        created_at: assets[0].created_at
-                    } : null
-                });
-            }
-
-            // Transform the assets into the format we need
-            const videos = assets.map((asset: any) => {
-                const video = {
-                    id: asset.id,
-                    playback_id: asset.playback_ids?.[0]?.id,
-                    creator: asset.metadata?.creator || "User",
-                    description: asset.metadata?.description || "A cool video",
-                    created_at: new Date(asset.created_at).getTime()
-                };
-
-                if (debug) {
-                    logger.debug(`Processed asset ${asset.id}:`, {
-                        hasPlaybackId: !!video.playback_id,
-                        metadata: asset.metadata
-                    });
-                }
-
-                return video;
+            // Add a timeout to the request
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Request timeout')), 10000);
             });
 
-            logger.info(`Successfully processed ${videos.length} videos`);
-            return videos;
+            const { data: assets } = await Promise.race([assetsPromise, timeoutPromise]) as { data: any[] };
+
+            logger.info("✅ Received Mux API response", { 
+                requestId,
+                assetCount: assets.length,
+                responseType: typeof assets,
+                isArray: Array.isArray(assets),
+                sampleAsset: assets[0] ? {
+                    id: assets[0].id,
+                    hasPlaybackIds: !!assets[0].playback_ids,
+                    playbackIdsCount: assets[0].playback_ids?.length,
+                    status: assets[0].status
+                } : null
+            });
+
+            // Transform and filter the assets
+            const videos = assets
+                .filter(asset => 
+                    asset.status === 'ready' && 
+                    asset.playback_ids && 
+                    asset.playback_ids.length > 0
+                )
+                .map(asset => {
+                    // Parse the Unix timestamp (seconds) to milliseconds
+                    const timestamp = parseInt(asset.created_at) * 1000;
+                    
+                    return {
+                        id: asset.id,
+                        playback_id: asset.playback_ids[0].id,
+                        creator: asset.metadata?.creator || "User",
+                        description: asset.metadata?.description || "A cool video",
+                        created_at: timestamp,
+                        status: asset.status
+                    };
+                });
+
+            logger.info("✅ Processed videos", { 
+                requestId,
+                totalAssets: assets.length,
+                filteredCount: videos.length,
+                firstProcessedVideo: videos[0] || null,
+                responseStructure: {
+                    type: 'object',
+                    keys: ['videos'],
+                    videosType: 'array'
+                }
+            });
+
+            const response = { videos };
+            
+            // Log the final response structure
+            logger.info("📤 Returning response", {
+                requestId,
+                responseType: typeof response,
+                hasVideosKey: 'videos' in response,
+                videosIsArray: Array.isArray(response.videos),
+                videosCount: response.videos.length,
+                responseKeys: Object.keys(response),
+                stringified: JSON.stringify(response).slice(0, 200) + '...' // First 200 chars
+            });
+
+            return response;
 
         } catch (muxError) {
-            logger.error("Mux API error:", muxError);
+            logger.error("❌ Mux API error:", { 
+                error: muxError, 
+                requestId,
+                errorType: typeof muxError,
+                errorIsError: muxError instanceof Error,
+                errorMessage: muxError instanceof Error ? muxError.message : String(muxError),
+                errorStack: muxError instanceof Error ? muxError.stack : undefined,
+                errorKeys: Object.keys(muxError as object)
+            });
             throw new HttpsError(
                 "internal",
                 "Error fetching videos from Mux",
                 {
                     muxError: muxError instanceof Error ? muxError.message : String(muxError),
-                    timestamp
+                    timestamp,
+                    requestId
                 }
             );
         }
 
     } catch (error) {
-        logger.error("Error in listMuxAssets:", {
+        logger.error("❌ Error in listMuxAssets:", {
             error,
+            errorType: typeof error,
+            errorIsError: error instanceof Error,
+            errorIsHttpsError: error instanceof HttpsError,
+            errorMessage: error instanceof Error ? error.message : String(error),
+            errorStack: error instanceof Error ? error.stack : undefined,
+            errorKeys: Object.keys(error as object),
             debug,
             client,
-            timestamp
+            timestamp,
+            requestId
         });
         
         if (error instanceof HttpsError) {
@@ -211,7 +283,8 @@ export const listMuxAssets = onCall({
             "Failed to list videos",
             {
                 originalError: error instanceof Error ? error.message : String(error),
-                timestamp
+                timestamp,
+                requestId
             }
         );
     }
