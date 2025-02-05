@@ -19,6 +19,7 @@ interface UploadRequest {
   filename: string;
   fileSize: number;
   contentType: string;
+  description: string;
 }
 
 // Start writing functions
@@ -38,7 +39,6 @@ export const getVideoUploadUrl = onCall({
     logger.info("Starting getVideoUploadUrl function", {data: request.data});
 
     try {
-        // Check if the user is authenticated
         if (!request.auth) {
             throw new HttpsError(
                 "unauthenticated",
@@ -48,10 +48,10 @@ export const getVideoUploadUrl = onCall({
 
         // Validate request data
         const data = request.data as UploadRequest;
-        if (!data.filename || !data.fileSize || !data.contentType) {
+        if (!data.filename || !data.fileSize || !data.contentType || !data.description) {
             throw new HttpsError(
                 "invalid-argument",
-                "Required fields: filename, fileSize, and contentType"
+                "Required fields: filename, fileSize, contentType, and description"
             );
         }
 
@@ -73,13 +73,24 @@ export const getVideoUploadUrl = onCall({
             filename: data.filename,
             fileSize: data.fileSize,
             contentType: data.contentType,
+            description: data.description,
         });
+
+        // Prepare metadata for passthrough
+        // Ensure total length is under 255 characters
+        const metadata = {
+            creator: request.auth.token.name || request.auth.token.email || "Anonymous",
+            description: data.description.length > 200 ? 
+                data.description.substring(0, 197) + "..." : 
+                data.description
+        };
 
         // Create a direct upload URL
         const upload = await muxClient.video.uploads.create({
             new_asset_settings: {
                 playback_policy: ["public"],
                 mp4_support: "capped-1080p",
+                passthrough: JSON.stringify(metadata)
             },
             cors_origin: "*", // For testing. In production, specify your domain
             timeout: 3600, // 1 hour to complete the upload
@@ -88,6 +99,7 @@ export const getVideoUploadUrl = onCall({
         logger.info("Upload URL created successfully", {
             uploadId: upload.id,
             filename: data.filename,
+            metadata
         });
 
         // Return the upload URL and ID

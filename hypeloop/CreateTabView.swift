@@ -316,7 +316,8 @@ struct CreateTabView: View {
         let data: [String: Any] = [
             "filename": filename,
             "fileSize": fileSize,
-            "contentType": contentType
+            "contentType": contentType,
+            "description": description
         ]
         
         let result = try await callable.call(data)
