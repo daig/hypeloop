@@ -110,6 +110,8 @@ class VideoManager: ObservableObject {
                     let item = AVPlayerItem(url: firstVideo.url)
                     self.currentPlayer.replaceCurrentItem(with: item)
                     self.setupPlayerItem(item)
+                    self.currentPlayer.play()  // Start playing immediately
+                    self.preloadNextVideo()    // And preload the next video
                 }
                 
             } catch {
@@ -212,6 +214,9 @@ class VideoManager: ObservableObject {
             self.preloadedItem = nil
             self.preloadedAsset = nil
             currentPlayer.play()
+            
+            // Immediately start preloading the next video
+            preloadNextVideo()
         } else {
             // Fallback to regular loading
             if let nextVideo = videoStack.first {
@@ -219,6 +224,9 @@ class VideoManager: ObservableObject {
                 currentPlayer.replaceCurrentItem(with: nextItem)
                 setupPlayerItem(nextItem)
                 currentPlayer.play()
+                
+                // Immediately start preloading the next video
+                preloadNextVideo()
             }
         }
     }

@@ -76,7 +76,6 @@ struct SwipeableVideoPlayer: View {
     @ObservedObject var videoManager: VideoManager
     @GestureState private var dragOffset: CGSize = .zero
     @State private var offset: CGSize = .zero
-    @State private var hasStartedPreloading = false
     @State private var showThumbsUp = false
     @State private var showThumbsDown = false
     @State private var showPaperAirplane = false
@@ -90,7 +89,6 @@ struct SwipeableVideoPlayer: View {
     private let maxRotation: Double = 35
     private let cardSpacing: CGFloat = 15
     private let secondCardScale: CGFloat = 0.95
-    private let preloadThreshold: CGFloat = 50
     
     var body: some View {
         GeometryReader { geometry in
@@ -145,10 +143,6 @@ struct SwipeableVideoPlayer: View {
                                 DragGesture()
                                     .updating($dragOffset) { value, state, _ in
                                         state = value.translation
-                                        if !hasStartedPreloading && abs(value.translation.width) > preloadThreshold {
-                                            hasStartedPreloading = true
-                                            videoManager.preloadNextVideo()
-                                        }
                                     }
                                     .onEnded(onDragEnded)
                             )
@@ -246,7 +240,6 @@ struct SwipeableVideoPlayer: View {
         let dragThreshold = swipeThreshold
         let dragWidth = gesture.translation.width
         let dragHeight = gesture.translation.height
-        hasStartedPreloading = false
         
         // Check for vertical swipes first
         if abs(dragHeight) > dragThreshold && abs(dragHeight) > abs(dragWidth) {
