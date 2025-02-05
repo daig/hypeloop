@@ -1,113 +1,179 @@
 import Foundation
 import SwiftUI
 import AVKit
+import FirebaseStorage
 
-struct VideoItem {
+struct VideoItem: Identifiable {
+    let id: String
     let url: URL
     let creator: String
     let description: String
-    let id: String  // Add an ID for uniqueness
+    let updatedTime: Date
     
-    init(url: URL, creator: String, description: String) {
+    init(id: String, url: URL, creator: String = "User", description: String = "", updatedTime: Date = Date()) {
+        self.id = id
         self.url = url
         self.creator = creator
         self.description = description
-        self.id = url.absoluteString  // Use URL as unique identifier
+        self.updatedTime = updatedTime
     }
 }
 
 class VideoManager: ObservableObject {
-    // Only using Apple's sample streams (all unique)
-    private let availableVideos = [
-        VideoItem(
-            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8")!,
-            creator: "Apple Demo",
-            description: "Experience our cutting-edge hyperloop prototype in action! 🚄 Revolutionizing transportation #innovation"
-        ),
-        VideoItem(
-            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear1/prog_index.m3u8")!,
-            creator: "Apple Streams",
-            description: "Behind the scenes: Testing our hyperloop's magnetic levitation system 🧲 #engineering #future"
-        ),
-        VideoItem(
-            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear2/prog_index.m3u8")!,
-            creator: "Quality Test",
-            description: "Zero to 760mph in seconds! Watch our latest speed test 🏃‍♂️💨 #speed #technology"
-        ),
-        VideoItem(
-            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear3/prog_index.m3u8")!,
-            creator: "HD Stream",
-            description: "Inside look: Our revolutionary vacuum tube design 🌀 #aerodynamics #engineering"
-        ),
-        VideoItem(
-            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear4/prog_index.m3u8")!,
-            creator: "4K Demo",
-            description: "First passenger capsule reveal! 🎉 The future of travel is here #hyperloop #design"
-        ),
-        VideoItem(
-            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/gear1/prog_index.m3u8")!,
-            creator: "Classic Format",
-            description: "Safety testing in progress: Our advanced braking system demonstration 🛑 #safety #innovation"
-        ),
-        VideoItem(
-            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/gear2/prog_index.m3u8")!,
-            creator: "Retro Style",
-            description: "Energy efficiency breakthrough: New solar-powered subsystems ☀️ #sustainable #green"
-        ),
-        VideoItem(
-            url: URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/gear3/prog_index.m3u8")!,
-            creator: "Vintage View",
-            description: "Route planning unveiled: City-to-city in minutes! 🗺️ #infrastructure #transport"
-        )
-    ]
-    
     @Published private(set) var videoStack: [VideoItem] = []
     @Published private(set) var currentPlayer: AVPlayer
     @Published var isShowingShareSheet = false
     @Published var itemsToShare: [Any]?
-    @Published private(set) var savedVideos: [VideoItem] = []  // Add saved videos array
+    @Published private(set) var savedVideos: [VideoItem] = []
+    @Published private var isLoading = false
     
     private var preloadedItem: AVPlayerItem?
     private var preloadedAsset: AVAsset?
+    private var playerItemObserver: NSObjectProtocol?
+    private var seenVideoIds: Set<String> = []  // Track seen videos
     
     init() {
         // Initialize with a dummy AVPlayer
         currentPlayer = AVPlayer()
-        videoStack = availableVideos.shuffled()
         
-        // Load the first video
-        if let firstVideo = videoStack.first {
-            let item = AVPlayerItem(url: firstVideo.url)
-            currentPlayer.replaceCurrentItem(with: item)
+        // Load videos from Firebase
+        Task {
+            await loadVideosFromFirebase(initial: true)
+        }
+    }
+    
+    func loadVideosFromFirebase(initial: Bool = false) async {
+        print("🌐 Starting Firebase video list fetch...")
+        guard !isLoading else {
+            print("⚠️ Skipping fetch - already loading")
+            return
+        }
+        isLoading = true
+        defer { isLoading = false }
+        
+        let storageRef = Storage.storage().reference()
+        let videosRef = storageRef.child("videos")
+        
+        do {
+            let result = try await videosRef.listAll()
+            print("📋 Found \(result.items.count) videos in Firebase")
+            var newVideos: [VideoItem] = []
+            var totalDataSize: Int64 = 0
+            
+            for item in result.items {
+                if !initial && seenVideoIds.contains(item.name) {
+                    print("⏭️ Skipping \(item.name) - already seen")
+                    continue
+                }
+                
+                do {
+                    print("📥 Fetching metadata for video: \(item.name)")
+                    let metadata = try await item.getMetadata()
+                    let size = metadata.size
+                    totalDataSize += size
+                    
+                    print("🔗 Getting download URL for video: \(item.name) (Size: \(formatFileSize(size)))")
+                    let url = try await item.downloadURL()
+                    
+                    let video = VideoItem(
+                        id: item.name,
+                        url: url,
+                        creator: metadata.customMetadata?["creator"] ?? "User",
+                        description: metadata.customMetadata?["description"] ?? "A cool video",
+                        updatedTime: metadata.updated ?? Date()
+                    )
+                    newVideos.append(video)
+                    print("✅ Successfully loaded video: \(item.name)")
+                } catch {
+                    print("❌ Error loading video \(item.name): \(error.localizedDescription)")
+                    continue
+                }
+            }
+            
+            print("📊 Network usage summary:")
+            print("- Total videos loaded: \(newVideos.count)")
+            print("- Total metadata size: \(formatFileSize(totalDataSize))")
+            
+            // Sort by most recent
+            newVideos.sort(by: { $0.updatedTime > $1.updatedTime })
+            
+            await MainActor.run {
+                if initial {
+                    print("🔄 Setting initial video stack with \(newVideos.count) videos")
+                    self.videoStack = newVideos
+                } else {
+                    print("➕ Appending \(newVideos.count) new videos to stack")
+                    self.videoStack.append(contentsOf: newVideos)
+                }
+                
+                if self.currentPlayer.currentItem == nil, let firstVideo = self.videoStack.first {
+                    print("▶️ Loading first video: \(firstVideo.id)")
+                    let item = AVPlayerItem(url: firstVideo.url)
+                    self.currentPlayer.replaceCurrentItem(with: item)
+                    self.setupPlayerItem(item)
+                }
+            }
+        } catch {
+            print("❌ Error loading videos from Firebase: \(error.localizedDescription)")
+        }
+    }
+    
+    private func formatFileSize(_ size: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: size)
+    }
+    
+    private func setupPlayerItem(_ item: AVPlayerItem) {
+        // Remove existing observer
+        if let observer = playerItemObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        
+        // Add new observer for looping
+        playerItemObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            self?.currentPlayer.seek(to: .zero)
+            self?.currentPlayer.play()
         }
     }
     
     private func cleanupCurrentVideo() {
         currentPlayer.pause()
-        // Don't nil out the player, just remove its item
+        if let observer = playerItemObserver {
+            NotificationCenter.default.removeObserver(observer)
+            playerItemObserver = nil
+        }
         currentPlayer.replaceCurrentItem(with: nil)
     }
     
     func preloadNextVideo() {
-        guard videoStack.count > 1 else { return }
+        guard videoStack.count > 1 else {
+            print("⚠️ Cannot preload - no more videos in stack")
+            return
+        }
         let nextVideo = videoStack[1]
+        print("🔄 Preloading next video: \(nextVideo.id)")
         
-        // Create and start preloading the asset
         let asset = AVAsset(url: nextVideo.url)
         preloadedAsset = asset
         
-        // Preload essential properties
         Task {
+            print("📥 Starting preload of video properties for: \(nextVideo.id)")
             await asset.loadValues(forKeys: ["playable", "duration"])
             
-            // Only create the player item if this is still our preloaded asset
             if asset === preloadedAsset {
                 let item = AVPlayerItem(asset: asset)
-                
-                // Switch to main thread for UI updates
                 await MainActor.run {
+                    print("✅ Preload complete for video: \(nextVideo.id)")
                     self.preloadedItem = item
                 }
+            } else {
+                print("⚠️ Preload cancelled - asset no longer current")
             }
         }
     }
@@ -115,27 +181,37 @@ class VideoManager: ObservableObject {
     func moveToNextVideo() {
         cleanupCurrentVideo()
         
-        // Remove the current video from the stack
-        if !videoStack.isEmpty {
+        // Mark current video as seen and remove it
+        if let currentVideo = videoStack.first {
+            seenVideoIds.insert(currentVideo.id)
             videoStack.removeFirst()
         }
         
-        // If stack is empty, reshuffle all videos
-        if videoStack.isEmpty {
-            videoStack = availableVideos.shuffled()
+        // If stack is getting low, load more videos
+        if videoStack.count < 3 {
+            Task {
+                await loadVideosFromFirebase()
+            }
         }
         
-        // Use preloaded item if available, otherwise create new one
+        // Reset seen videos if we've seen them all
+        if seenVideoIds.count == videoStack.count && !videoStack.isEmpty {
+            seenVideoIds.removeAll()
+        }
+        
+        // Use preloaded item if available
         if let preloadedItem = preloadedItem {
             currentPlayer.replaceCurrentItem(with: preloadedItem)
+            setupPlayerItem(preloadedItem)
             self.preloadedItem = nil
             self.preloadedAsset = nil
             currentPlayer.play()
         } else {
-            // Fallback to regular loading if preload wasn't ready
+            // Fallback to regular loading
             if let nextVideo = videoStack.first {
                 let nextItem = AVPlayerItem(url: nextVideo.url)
                 currentPlayer.replaceCurrentItem(with: nextItem)
+                setupPlayerItem(nextItem)
                 currentPlayer.play()
             }
         }

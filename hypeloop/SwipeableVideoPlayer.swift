@@ -10,17 +10,41 @@ struct AutoplayVideoPlayer: UIViewControllerRepresentable {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.showsPlaybackControls = false
-        controller.videoGravity = .resizeAspect  // Changed to resizeAspect for proper scaling
-        
-        // Configure the view to be centered
+        controller.videoGravity = .resizeAspectFill
         controller.view.backgroundColor = .clear
         controller.contentOverlayView?.backgroundColor = .clear
+        
+        // Set up looping
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: player.currentItem,
+            queue: .main
+        ) { _ in
+            player.seek(to: .zero)
+            player.play()
+        }
         
         return controller
     }
     
     func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
         uiViewController.player = player
+        
+        // Update looping observer for new player item
+        NotificationCenter.default.removeObserver(context.coordinator)
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: player.currentItem,
+            queue: .main
+        ) { _ in
+            player.seek(to: .zero)
+            player.play()
+        }
+    }
+    
+    static func dismantleUIViewController(_ uiViewController: AVPlayerViewController, coordinator: ()) {
+        // Remove observer when view is dismantled
+        NotificationCenter.default.removeObserver(coordinator)
     }
 }
 
@@ -47,6 +71,7 @@ struct SwipeableVideoPlayer: View {
     @State private var showSaveIcon = false
     @State private var paperAirplaneOffset: CGFloat = 0
     @State private var saveIconOffset: CGFloat = 0
+    @State private var isRefreshing = false
     
     // Constants for card animations
     private let swipeThreshold: CGFloat = 100
@@ -58,98 +83,128 @@ struct SwipeableVideoPlayer: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Stack of cards
-                ForEach((0..<min(2, videoManager.videoStack.count)), id: \.self) { index in
-                    if index == 0 {
-                        // Top card (current video)
-                        ZStack {
-                            // Background for the card
-                            RoundedRectangle(cornerRadius: 20)
-                                .fill(Color.black)
-                            
-                            // Video player
-                            AutoplayVideoPlayer(player: videoManager.currentPlayer)
-                                .clipShape(RoundedRectangle(cornerRadius: 20))
+                // Empty state with refresh button
+                if videoManager.videoStack.isEmpty {
+                    VStack(spacing: 16) {
+                        Image(systemName: "arrow.clockwise.circle.fill")
+                            .font(.system(size: 60))
+                            .foregroundColor(.white)
+                            .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                            .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
+                        
+                        Text("No videos available")
+                            .foregroundColor(.white)
+                            .font(.headline)
+                        
+                        Button(action: {
+                            isRefreshing = true
+                            Task {
+                                await videoManager.loadVideosFromFirebase(initial: true)
+                                isRefreshing = false
+                            }
+                        }) {
+                            Text("Tap to refresh")
+                                .foregroundColor(.gray)
+                                .font(.subheadline)
                         }
-                        .frame(width: geometry.size.width - cardSpacing * 2, height: geometry.size.height - cardSpacing * 2)
-                        .offset(x: offset.width + dragOffset.width, y: offset.height + dragOffset.height)
-                        .rotationEffect(.degrees(rotationAngle))
-                        .gesture(
-                            DragGesture()
-                                .updating($dragOffset) { value, state, _ in
-                                    state = value.translation
-                                    if !hasStartedPreloading && abs(value.translation.width) > preloadThreshold {
-                                        hasStartedPreloading = true
-                                        videoManager.preloadNextVideo()
-                                    }
-                                }
-                                .onEnded(onDragEnded)
-                        )
-                        .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.6), value: dragOffset)
-                        .zIndex(2)
-                    } else {
-                        // Background card (black)
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 20)
-                                .fill(Color.black)
-                        }
-                        .frame(width: geometry.size.width - cardSpacing * 2, height: geometry.size.height - cardSpacing * 2)
-                        .cornerRadius(20)
-                        .scaleEffect(
-                            min(
-                                secondCardScale + (1 - secondCardScale) * abs(offset.width) / geometry.size.width,
-                                1.0
-                            )
-                        )
-                        .offset(y: cardSpacing)
-                        .zIndex(1)
                     }
-                }
-                
-                // Paper airplane overlay (moved outside card stack)
-                Image(systemName: "paperplane.fill")
-                    .resizable()
-                    .frame(width: 100, height: 100)
-                    .foregroundColor(.blue)
-                    .opacity(showPaperAirplane ? 0.8 : 0)
-                    .scaleEffect(showPaperAirplane ? 1 : 0.5)
-                    .rotationEffect(.degrees(-45))
-                    .offset(y: paperAirplaneOffset)
-                    .animation(.spring(response: 0.3).speed(0.7), value: showPaperAirplane)
-                    .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: paperAirplaneOffset)
-                    .zIndex(3)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+                } else {
+                    // Stack of cards
+                    ForEach((0..<min(2, videoManager.videoStack.count)), id: \.self) { index in
+                        if index == 0 {
+                            // Top card (current video)
+                            ZStack {
+                                // Background for the card
+                                RoundedRectangle(cornerRadius: 20)
+                                    .fill(Color.black)
+                                
+                                // Video player
+                                AutoplayVideoPlayer(player: videoManager.currentPlayer)
+                                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                                    .padding(.top, 60)
+                            }
+                            .frame(width: geometry.size.width - cardSpacing * 2, height: geometry.size.height - cardSpacing * 2)
+                            .offset(x: offset.width + dragOffset.width, y: offset.height + dragOffset.height)
+                            .rotationEffect(.degrees(rotationAngle))
+                            .gesture(
+                                DragGesture()
+                                    .updating($dragOffset) { value, state, _ in
+                                        state = value.translation
+                                        if !hasStartedPreloading && abs(value.translation.width) > preloadThreshold {
+                                            hasStartedPreloading = true
+                                            videoManager.preloadNextVideo()
+                                        }
+                                    }
+                                    .onEnded(onDragEnded)
+                            )
+                            .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.6), value: dragOffset)
+                            .zIndex(2)
+                        } else {
+                            // Background card (black)
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 20)
+                                    .fill(Color.black)
+                            }
+                            .frame(width: geometry.size.width - cardSpacing * 2, height: geometry.size.height - cardSpacing * 2)
+                            .cornerRadius(20)
+                            .scaleEffect(
+                                min(
+                                    secondCardScale + (1 - secondCardScale) * abs(offset.width) / geometry.size.width,
+                                    1.0
+                                )
+                            )
+                            .offset(y: cardSpacing)
+                            .zIndex(1)
+                        }
+                    }
+                    
+                    // Paper airplane overlay (moved outside card stack)
+                    Image(systemName: "paperplane.fill")
+                        .resizable()
+                        .frame(width: 100, height: 100)
+                        .foregroundColor(.blue)
+                        .opacity(showPaperAirplane ? 0.8 : 0)
+                        .scaleEffect(showPaperAirplane ? 1 : 0.5)
+                        .rotationEffect(.degrees(-45))
+                        .offset(y: paperAirplaneOffset)
+                        .animation(.spring(response: 0.3).speed(0.7), value: showPaperAirplane)
+                        .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: paperAirplaneOffset)
+                        .zIndex(3)
 
-                // Thumbs up overlay
-                Image(systemName: "hand.thumbsup.fill")
-                    .resizable()
-                    .frame(width: 100, height: 100)
-                    .foregroundColor(.green)
-                    .opacity(showThumbsUp ? 0.8 : 0)
-                    .scaleEffect(showThumbsUp ? 1 : 0.5)
-                    .animation(.spring(response: 0.3), value: showThumbsUp)
-                    .zIndex(3)
-                
-                // Thumbs down overlay
-                Image(systemName: "hand.thumbsdown.fill")
-                    .resizable()
-                    .frame(width: 100, height: 100)
-                    .foregroundColor(.red)
-                    .opacity(showThumbsDown ? 0.8 : 0)
-                    .scaleEffect(showThumbsDown ? 1 : 0.5)
-                    .animation(.spring(response: 0.3), value: showThumbsDown)
-                    .zIndex(3)
-                
-                // Save icon overlay
-                Image(systemName: "square.and.arrow.down.fill")
-                    .resizable()
-                    .frame(width: 100, height: 100)
-                    .foregroundColor(.purple)
-                    .opacity(showSaveIcon ? 0.8 : 0)
-                    .scaleEffect(showSaveIcon ? 1 : 0.5)
-                    .offset(y: saveIconOffset)
-                    .animation(.spring(response: 0.3).speed(0.7), value: showSaveIcon)
-                    .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: saveIconOffset)
-                    .zIndex(3)
+                    // Thumbs up overlay
+                    Image(systemName: "hand.thumbsup.fill")
+                        .resizable()
+                        .frame(width: 100, height: 100)
+                        .foregroundColor(.green)
+                        .opacity(showThumbsUp ? 0.8 : 0)
+                        .scaleEffect(showThumbsUp ? 1 : 0.5)
+                        .animation(.spring(response: 0.3), value: showThumbsUp)
+                        .zIndex(3)
+                    
+                    // Thumbs down overlay
+                    Image(systemName: "hand.thumbsdown.fill")
+                        .resizable()
+                        .frame(width: 100, height: 100)
+                        .foregroundColor(.red)
+                        .opacity(showThumbsDown ? 0.8 : 0)
+                        .scaleEffect(showThumbsDown ? 1 : 0.5)
+                        .animation(.spring(response: 0.3), value: showThumbsDown)
+                        .zIndex(3)
+                    
+                    // Save icon overlay
+                    Image(systemName: "square.and.arrow.down.fill")
+                        .resizable()
+                        .frame(width: 100, height: 100)
+                        .foregroundColor(.purple)
+                        .opacity(showSaveIcon ? 0.8 : 0)
+                        .scaleEffect(showSaveIcon ? 1 : 0.5)
+                        .offset(y: saveIconOffset)
+                        .animation(.spring(response: 0.3).speed(0.7), value: showSaveIcon)
+                        .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: saveIconOffset)
+                        .zIndex(3)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onAppear {

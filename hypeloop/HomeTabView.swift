@@ -13,47 +13,30 @@ struct HomeTabView: View {
             SwipeableVideoPlayer(videoManager: videoManager)
                 .ignoresSafeArea()
             
-            // Overlay Elements
-            ZStack {
-                // Video Info Overlay at bottom
-                VStack {
-                    Spacer()
-                    VStack(alignment: .leading, spacing: 8) {
-                        if let currentVideo = videoManager.videoStack.first {
-                            Text("@\(currentVideo.creator)")
-                                .font(.headline)
-                                .bold()
-                            Text(currentVideo.description)
-                                .font(.subheadline)
-                                .lineLimit(2)
-                        }
+            // Video Info Overlay at bottom
+            VStack {
+                Spacer()
+                VStack(alignment: .leading, spacing: 8) {
+                    if let currentVideo = videoManager.videoStack.first {
+                        Text("@\(currentVideo.creator)")
+                            .font(.headline)
+                            .bold()
+                        Text(currentVideo.description)
+                            .font(.subheadline)
+                            .lineLimit(2)
                     }
-                    .foregroundColor(.white)
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        LinearGradient(
-                            gradient: Gradient(colors: [.clear, .black.opacity(0.6)]),
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
+                }
+                .foregroundColor(.white)
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    LinearGradient(
+                        gradient: Gradient(colors: [.clear, .black.opacity(0.6)]),
+                        startPoint: .top,
+                        endPoint: .bottom
                     )
-                    .padding(.bottom, 90)
-                    .padding(.trailing, 80)
-                }
-                
-                // Right-side Reaction Panel
-                VStack(spacing: 20) {
-                    Spacer()
-                    ReactionButton(iconName: "video.badge.plus", label: "React", count: nil)
-                    ReactionButton(iconName: "heart.fill", label: "Like", count: "127K")
-                    ReactionButton(iconName: "arrow.rectanglepath", label: "Related", count: "234")
-                    ReactionButton(iconName: "bubble.right.fill", label: "Responses", count: "1.2K")
-                    Spacer()
-                        .frame(height: 80)
-                }
-                .padding(.trailing, 16)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                )
+                .padding(.bottom, 49) // Adjusted to align with navigation bar
             }
         }
     }
