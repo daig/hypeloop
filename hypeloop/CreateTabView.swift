@@ -326,7 +326,22 @@ struct CreateTabView: View {
             currentUploadId = muxResponse.uploadId
             
             // Create initial Firestore document
-            let creator = Auth.auth().currentUser?.displayName ?? Auth.auth().currentUser?.email ?? "Anonymous"
+            let user = Auth.auth().currentUser
+            print("📱 Debug - User info:")
+            print("  DisplayName: \(user?.displayName ?? "nil")")
+            print("  Email: \(user?.email ?? "nil")")
+            print("  Provider ID: \(user?.providerData.first?.providerID ?? "nil")")
+            
+            // For Apple Sign In users, prefer email if display name is nil
+            let creator: String
+            if user?.providerData.first?.providerID == "apple.com" {
+                creator = user?.email ?? user?.displayName ?? "Anonymous"
+            } else {
+                creator = user?.displayName ?? user?.email ?? "Anonymous"
+            }
+            
+            print("📱 Debug - Final creator value: \(creator)")
+            
             try await db.collection("videos").document(muxResponse.uploadId).setData([
                 "id": muxResponse.uploadId,
                 "creator": creator,

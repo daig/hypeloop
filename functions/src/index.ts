@@ -191,6 +191,7 @@ export const muxWebhook = onRequest(
                 res.status(404).json({ error: 'Video not found' });
                 return;
             }
+            // Update only the necessary fields while preserving others
             await videoRef.update({
                 status: 'ready',
                 playback_id: playbackId,
