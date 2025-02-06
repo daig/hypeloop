@@ -21,7 +21,7 @@ struct VideoItem: Codable {
 
 class VideoManager: ObservableObject {
     @Published private(set) var videoStack: [VideoItem] = []
-    @Published var currentPlayer: AVPlayer
+    @Published var currentPlayer: AVQueuePlayer
     @Published private(set) var currentVideo: VideoItem?
     @Published var isShowingShareSheet = false
     @Published var itemsToShare: [Any]?
@@ -31,7 +31,7 @@ class VideoManager: ObservableObject {
     
     private var preloadedItem: AVPlayerItem?
     private var preloadedAsset: AVAsset?
-    private var playerItemObserver: NSObjectProtocol?
+    private var playerLooper: AVPlayerLooper?
     private var seenVideosFilter: BloomFilterStore
     
     // Firestore instance
@@ -39,8 +39,8 @@ class VideoManager: ObservableObject {
     
     init() async {
         print("📹 Initializing VideoManager")
-        // Initialize with a dummy AVPlayer
-        currentPlayer = AVPlayer()
+        // Initialize with a dummy AVQueuePlayer
+        currentPlayer = AVQueuePlayer()
         
         // Initialize bloom filter store and wait for it to load
         print("📹 Creating BloomFilterStore")
@@ -169,28 +169,18 @@ class VideoManager: ObservableObject {
     }
     
     private func setupPlayerItem(_ item: AVPlayerItem) {
-        // Remove existing observer
-        if let observer = playerItemObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
+        // Remove existing looper
+        playerLooper?.disableLooping()
+        playerLooper = nil
         
-        // Add new observer for looping
-        playerItemObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: item,
-            queue: .main
-        ) { [weak self] _ in
-            self?.currentPlayer.seek(to: .zero)
-            self?.currentPlayer.play()
-        }
+        // Create new looper for smooth playback
+        playerLooper = AVPlayerLooper(player: currentPlayer, templateItem: item)
     }
     
     private func cleanupCurrentVideo() {
         currentPlayer.pause()
-        if let observer = playerItemObserver {
-            NotificationCenter.default.removeObserver(observer)
-            playerItemObserver = nil
-        }
+        playerLooper?.disableLooping()
+        playerLooper = nil
         currentPlayer.replaceCurrentItem(with: nil)
     }
     

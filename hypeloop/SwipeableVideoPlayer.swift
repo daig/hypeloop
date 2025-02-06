@@ -4,7 +4,7 @@ import UIKit
 
 // Custom VideoPlayer view that hides controls
 struct AutoplayVideoPlayer: UIViewControllerRepresentable {
-    let player: AVPlayer
+    let player: AVQueuePlayer
     
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
@@ -20,16 +20,6 @@ struct AutoplayVideoPlayer: UIViewControllerRepresentable {
             currentItem.preferredForwardBufferDuration = 5 // Buffer 5 seconds ahead
         }
         
-        // Set up looping
-        NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: player.currentItem,
-            queue: .main
-        ) { _ in
-            player.seek(to: .zero)
-            player.play()
-        }
-        
         return controller
     }
     
@@ -41,22 +31,23 @@ struct AutoplayVideoPlayer: UIViewControllerRepresentable {
             currentItem.preferredPeakBitRate = 0
             currentItem.preferredForwardBufferDuration = 5
         }
-        
-        // Update looping observer for new player item
-        NotificationCenter.default.removeObserver(context.coordinator)
-        NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: player.currentItem,
-            queue: .main
-        ) { _ in
-            player.seek(to: .zero)
-            player.play()
-        }
     }
     
-    static func dismantleUIViewController(_ uiViewController: AVPlayerViewController, coordinator: ()) {
-        // Remove observer when view is dismantled
-        NotificationCenter.default.removeObserver(coordinator)
+    func dismantleUIViewController(_ uiViewController: AVPlayerViewController, coordinator: Coordinator) {
+        // Clean up any resources if needed
+    }
+    
+    // Required by UIViewControllerRepresentable
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject {
+        let parent: AutoplayVideoPlayer
+        
+        init(_ parent: AutoplayVideoPlayer) {
+            self.parent = parent
+        }
     }
 }
 
