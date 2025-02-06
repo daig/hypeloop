@@ -332,19 +332,27 @@ struct CreateTabView: View {
             print("  Email: \(user?.email ?? "nil")")
             print("  Provider ID: \(user?.providerData.first?.providerID ?? "nil")")
             
-            // For Apple Sign In users, prefer email if display name is nil
-            let creator: String
+            // Get the user identifier (email or display name)
+            let userIdentifier: String
             if user?.providerData.first?.providerID == "apple.com" {
-                creator = user?.email ?? user?.displayName ?? "Anonymous"
+                userIdentifier = user?.email ?? user?.displayName ?? "Anonymous"
             } else {
-                creator = user?.displayName ?? user?.email ?? "Anonymous"
+                userIdentifier = user?.displayName ?? user?.email ?? "Anonymous"
             }
             
-            print("📱 Debug - Final creator value: \(creator)")
+            // Generate creator hash and display name
+            let creatorHash = CreatorNameGenerator.generateCreatorHash(userIdentifier)
+            let displayName = CreatorNameGenerator.generateDisplayName(from: creatorHash)
+            
+            print("📱 Debug - Creator info:")
+            print("  Identifier: \(userIdentifier)")
+            print("  Hash: \(creatorHash)")
+            print("  Display Name: \(displayName)")
             
             try await db.collection("videos").document(muxResponse.uploadId).setData([
                 "id": muxResponse.uploadId,
-                "creator": creator,
+                "creator": creatorHash,
+                "display_name": displayName,
                 "description": description,
                 "created_at": Int(Date().timeIntervalSince1970 * 1000), // Convert to milliseconds as integer
                 "status": "uploading"

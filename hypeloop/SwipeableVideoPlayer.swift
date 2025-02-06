@@ -153,7 +153,7 @@ struct SwipeableVideoPlayer: View {
                                         // Text content
                                         if let currentVideo = videoManager.videoStack.first {
                                             VStack(alignment: .leading, spacing: 8) {
-                                                Text("@\(currentVideo.creator)")
+                                                Text("@\(currentVideo.display_name)")
                                                     .font(.headline)
                                                     .bold()
                                                 Text(currentVideo.description)

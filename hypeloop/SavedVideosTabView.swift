@@ -79,7 +79,7 @@ struct SavedVideosTabView: View {
             
             // Text overlay
             VStack(alignment: .leading, spacing: 4) {
-                Text("@\(video.creator)")
+                Text("@\(video.display_name)")
                     .font(.headline)
                     .bold()
                     .lineLimit(1)
@@ -187,7 +187,7 @@ struct SavedVideosTabView: View {
                 }
                 
                 // Create a unique filename with mp4 extension
-                let filename = "\(video.creator)_\(UUID().uuidString).mp4"
+                let filename = "\(video.display_name)_\(UUID().uuidString).mp4"
                 
                 // Get the documents directory
                 guard let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {

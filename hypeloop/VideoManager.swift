@@ -7,7 +7,8 @@ import FirebaseFirestore
 struct VideoItem: Codable {
     let id: String
     let playback_id: String
-    let creator: String
+    let creator: String       // Hash of the creator's identifier
+    let display_name: String  // Generated display name
     let description: String
     let created_at: Double
     let status: String
