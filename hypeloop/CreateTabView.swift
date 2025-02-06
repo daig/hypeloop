@@ -45,6 +45,7 @@ struct CreateTabView: View {
     @State private var uploadProgress: Double = 0.0
     @State private var showAlert = false
     @State private var alertMessage = ""
+    @State private var uploadComplete = false
     @State private var currentUploadId: String? = nil
     
     // Shared instances
@@ -69,6 +70,13 @@ struct CreateTabView: View {
             uploadProgressView
             descriptionField
             uploadButton
+            
+            if uploadComplete {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                    .font(.system(size: 50))
+                    .padding(.top)
+            }
             
             Spacer()
         }
@@ -220,9 +228,12 @@ struct CreateTabView: View {
     private func handleVideoSelection(_ newItem: PhotosPickerItem?) async {
         guard isAuthenticated else { return }
         
-        // Reset progress and upload state when selecting new video
+        // Reset form and state when selecting new video
+        selectedVideoURL = nil
+        description = ""
         uploadProgress = 0
         isUploading = false
+        uploadComplete = false
         
         if let data = try? await newItem?.loadTransferable(type: Data.self) {
             let tempDir = FileManager.default.temporaryDirectory
@@ -402,16 +413,9 @@ struct CreateTabView: View {
             try? FileManager.default.removeItem(at: optimizedURL)
             try? FileManager.default.removeItem(at: videoURL)
             
-            // Reset form
-            selectedItem = nil
-            selectedVideoURL = nil
-            description = ""
             isUploading = false
             uploadProgress = 0
-            
-            // Show success message
-            alertMessage = "Video uploaded successfully! It will be available once processing is complete."
-            showAlert = true
+            uploadComplete = true
             
         } catch {
             alertMessage = "Upload failed: \(error.localizedDescription)"
