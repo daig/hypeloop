@@ -87,7 +87,6 @@ struct SwipeableVideoPlayer: View {
     private let swipeThreshold: CGFloat = 100
     private let maxRotation: Double = 35
     private let cardSpacing: CGFloat = 15
-    private let secondCardScale: CGFloat = 0.95
     
     var body: some View {
         GeometryReader { geometry in
@@ -138,7 +137,7 @@ struct SwipeableVideoPlayer: View {
                             // Top card (current video)
                             ZStack {
                                 RoundedRectangle(cornerRadius: 20)
-                                    .fill(Color.black)
+                                    .fill(Color.black.opacity(0))
                                 
                                 AutoplayVideoPlayer(player: videoManager.currentPlayer)
                                     .clipShape(RoundedRectangle(cornerRadius: 20))
@@ -191,16 +190,23 @@ struct SwipeableVideoPlayer: View {
                                 RoundedRectangle(cornerRadius: 20)
                                     .fill(Color.black)
                                 
-                                // Display next video but with playback paused (static first frame)
-                                AutoplayVideoPlayer(player: videoManager.nextPlayer, shouldAutoplay: false)
+                                AutoplayVideoPlayer(player: videoManager.nextPlayer)
                                     .clipShape(RoundedRectangle(cornerRadius: 20))
                                     .padding(.top, 60)
+                                
+                                // Add the same overlay gradient as the top card for visual consistency
+                                VStack {
+                                    Spacer()
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
+                                        startPoint: UnitPoint(x: 0.5, y: 0.3),
+                                        endPoint: .bottom
+                                    )
+                                    .frame(height: geometry.size.height / 2)
+                                }
                             }
                             .frame(width: geometry.size.width - cardSpacing * 2,
                                    height: geometry.size.height - cardSpacing * 2)
-                            .cornerRadius(20)
-                            .scaleEffect(secondCardScale)
-                            .offset(y: cardSpacing)
                             .zIndex(1)
                         }
                     }
