@@ -4,7 +4,7 @@ import UIKit
 
 // Custom VideoPlayer view that hides controls
 struct AutoplayVideoPlayer: UIViewControllerRepresentable {
-    let player: AVQueuePlayer
+    let player: AVPlayer
     
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
@@ -17,7 +17,7 @@ struct AutoplayVideoPlayer: UIViewControllerRepresentable {
         // Enable HLS adaptive bitrate streaming
         if let currentItem = player.currentItem {
             currentItem.preferredPeakBitRate = 0 // Let AVPlayer choose the best bitrate
-            currentItem.preferredForwardBufferDuration = 5 // Buffer 5 seconds ahead
+            currentItem.preferredForwardBufferDuration = 2 // Small buffer for quick start
         }
         
         return controller
@@ -29,7 +29,7 @@ struct AutoplayVideoPlayer: UIViewControllerRepresentable {
         // Update HLS settings for new player item
         if let currentItem = player.currentItem {
             currentItem.preferredPeakBitRate = 0
-            currentItem.preferredForwardBufferDuration = 5
+            currentItem.preferredForwardBufferDuration = 2
         }
     }
     
@@ -64,9 +64,16 @@ struct ShareSheet: UIViewControllerRepresentable {
 }
 
 struct SwipeableVideoPlayer: View {
+    // MARK: - Properties
+    
+    // ObservableObject
     @ObservedObject var videoManager: VideoManager
+    
+    // Gesture and animation states
     @GestureState private var dragOffset: CGSize = .zero
     @State private var offset: CGSize = .zero
+    
+    // UI states
     @State private var showThumbsUp = false
     @State private var showThumbsDown = false
     @State private var showPaperAirplane = false
@@ -75,11 +82,22 @@ struct SwipeableVideoPlayer: View {
     @State private var saveIconOffset: CGFloat = 0
     @State private var isRefreshing = false
     
-    // Constants for card animations
-    private let swipeThreshold: CGFloat = 100
-    private let maxRotation: Double = 35
+    // MARK: - Constants
+    
+    // Card layout
     private let cardSpacing: CGFloat = 15
     private let secondCardScale: CGFloat = 0.95
+    
+    // Swipe thresholds
+    private let swipeThreshold: CGFloat = 100
+    private let maxRotation: Double = 35
+    
+    // MARK: - Computed Properties
+    
+    private var rotationAngle: Double {
+        let dragPercentage = Double(dragOffset.width + offset.width) / 300
+        return dragPercentage * maxRotation
+    }
     
     var body: some View {
         GeometryReader { geometry in
@@ -122,125 +140,135 @@ struct SwipeableVideoPlayer: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
                 } else {
-                    // Stack of cards
-                    ForEach((0..<min(2, videoManager.videoStack.count)), id: \.self) { index in
-                        if index == 0 {
-                            // Top card (current video)
+                    ZStack {
+                        // Next video card (behind)
+                        if let nextVideo = videoManager.videoStack.dropFirst().first {
                             ZStack {
-                                // Background for the card
+                                // Background color
                                 RoundedRectangle(cornerRadius: 20)
                                     .fill(Color.black)
                                 
-                                // Video player
-                                AutoplayVideoPlayer(player: videoManager.currentPlayer)
-                                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                                    .padding(.top, 60)
-                                
-                                // Author and description overlay
-                                VStack {
-                                    Spacer()
-                                    // Gradient background for bottom half of card
-                                    ZStack(alignment: .bottom) {
-                                        LinearGradient(
-                                            gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
-                                            startPoint: UnitPoint(x: 0.5, y: 0.3),
-                                            endPoint: .bottom
-                                        )
-                                        
-                                        // Text content
-                                        if let currentVideo = videoManager.videoStack.first {
-                                            VStack(alignment: .leading, spacing: 8) {
-                                                Text("@\(currentVideo.display_name)")
-                                                    .font(.headline)
-                                                    .bold()
-                                                Text(currentVideo.description)
-                                                    .font(.subheadline)
-                                                    .lineLimit(2)
-                                            }
-                                            .foregroundColor(.white)
-                                            .padding()
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .padding(.bottom, 80)
-                                        }
-                                    }
-                                    .frame(height: geometry.size.height / 2)
-                                }
+                                // Next video preview
+                                AutoplayVideoPlayer(player: videoManager.nextPlayer)
                             }
                             .frame(width: geometry.size.width - cardSpacing * 2, height: geometry.size.height - cardSpacing * 2)
-                            .offset(x: offset.width + dragOffset.width, y: offset.height + dragOffset.height)
-                            .rotationEffect(.degrees(rotationAngle))
-                            .gesture(
-                                DragGesture()
-                                    .updating($dragOffset) { value, state, _ in
-                                        state = value.translation
-                                    }
-                                    .onEnded(onDragEnded)
-                            )
-                            .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.6), value: dragOffset)
-                            .zIndex(2)
-                        } else {
-                            // Background card (black)
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 20)
-                                    .fill(Color.black)
-                            }
-                            .frame(width: geometry.size.width - cardSpacing * 2, height: geometry.size.height - cardSpacing * 2)
-                            .cornerRadius(20)
-                            .scaleEffect(
-                                min(
-                                    secondCardScale + (1 - secondCardScale) * abs(offset.width) / geometry.size.width,
-                                    1.0
-                                )
-                            )
-                            .offset(y: cardSpacing)
+                            .clipShape(RoundedRectangle(cornerRadius: 20))
+                            .padding(.top, 60)
+                            .scaleEffect(0.95)
+                            .offset(y: 10)
                             .zIndex(1)
                         }
+                        
+                        // Current video card (front)
+                        ZStack {
+                            // Background color
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(Color.black)
+                            
+                            // Current video
+                            AutoplayVideoPlayer(player: videoManager.currentPlayer)
+                            
+                            // Author and description overlay
+                            VStack {
+                                Spacer()
+                                // Gradient background for bottom half of card
+                                ZStack(alignment: .bottom) {
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
+                                        startPoint: UnitPoint(x: 0.5, y: 0.3),
+                                        endPoint: .bottom
+                                    )
+                                    
+                                    // Text content
+                                    if let currentVideo = videoManager.videoStack.first {
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            Text("@\(currentVideo.display_name)")
+                                                .font(.headline)
+                                                .bold()
+                                            Text(currentVideo.description)
+                                                .font(.subheadline)
+                                                .lineLimit(2)
+                                        }
+                                        .foregroundColor(.white)
+                                        .padding()
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.bottom, 80)
+                                    }
+                                }
+                                .frame(height: geometry.size.height / 2)
+                            }
+                        }
+                        .frame(width: geometry.size.width - cardSpacing * 2, height: geometry.size.height - cardSpacing * 2)
+                        .clipShape(RoundedRectangle(cornerRadius: 20))
+                        .padding(.top, 60)
+                        .offset(x: offset.width + dragOffset.width, y: offset.height + dragOffset.height)
+                        .rotationEffect(.degrees(rotationAngle))
+                        .gesture(
+                            DragGesture()
+                                .updating($dragOffset) { value, state, _ in
+                                    state = value.translation
+                                }
+                                .onEnded(onDragEnded)
+                        )
+                        .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.6), value: dragOffset)
+                        .zIndex(2)
                     }
                     
-                    // Paper airplane overlay (moved outside card stack)
-                    Image(systemName: "paperplane.fill")
-                        .resizable()
-                        .frame(width: 100, height: 100)
-                        .foregroundColor(.blue)
-                        .opacity(showPaperAirplane ? 0.8 : 0)
-                        .scaleEffect(showPaperAirplane ? 1 : 0.5)
-                        .rotationEffect(.degrees(-45))
-                        .offset(y: paperAirplaneOffset)
-                        .animation(.spring(response: 0.3).speed(0.7), value: showPaperAirplane)
-                        .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: paperAirplaneOffset)
-                        .zIndex(3)
-
-                    // Thumbs up overlay
-                    Image(systemName: "hand.thumbsup.fill")
-                        .resizable()
-                        .frame(width: 100, height: 100)
-                        .foregroundColor(.green)
-                        .opacity(showThumbsUp ? 0.8 : 0)
-                        .scaleEffect(showThumbsUp ? 1 : 0.5)
-                        .animation(.spring(response: 0.3), value: showThumbsUp)
-                        .zIndex(3)
-                    
-                    // Thumbs down overlay
-                    Image(systemName: "hand.thumbsdown.fill")
-                        .resizable()
-                        .frame(width: 100, height: 100)
-                        .foregroundColor(.red)
-                        .opacity(showThumbsDown ? 0.8 : 0)
-                        .scaleEffect(showThumbsDown ? 1 : 0.5)
-                        .animation(.spring(response: 0.3), value: showThumbsDown)
-                        .zIndex(3)
-                    
-                    // Save icon overlay
-                    Image(systemName: "square.and.arrow.down.fill")
-                        .resizable()
-                        .frame(width: 100, height: 100)
-                        .foregroundColor(.purple)
-                        .opacity(showSaveIcon ? 0.8 : 0)
-                        .scaleEffect(showSaveIcon ? 1 : 0.5)
-                        .offset(y: saveIconOffset)
-                        .animation(.spring(response: 0.3).speed(0.7), value: showSaveIcon)
-                        .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: saveIconOffset)
-                        .zIndex(3)
+                    // Overlays
+                    Group {
+                        // Paper airplane overlay
+                        if showPaperAirplane {
+                            Image(systemName: "paperplane.fill")
+                                .resizable()
+                                .frame(width: 100, height: 100)
+                                .foregroundColor(.blue)
+                                .rotationEffect(.degrees(-45))
+                                .offset(y: paperAirplaneOffset)
+                                .opacity(0.8)
+                                .scaleEffect(1)
+                                .animation(.spring(response: 0.3).speed(0.7), value: showPaperAirplane)
+                                .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: paperAirplaneOffset)
+                                .zIndex(3)
+                        }
+                        
+                        // Thumbs up overlay
+                        if showThumbsUp {
+                            Image(systemName: "hand.thumbsup.fill")
+                                .resizable()
+                                .frame(width: 100, height: 100)
+                                .foregroundColor(.green)
+                                .opacity(0.8)
+                                .scaleEffect(1)
+                                .animation(.spring(response: 0.3), value: showThumbsUp)
+                                .zIndex(3)
+                        }
+                        
+                        // Thumbs down overlay
+                        if showThumbsDown {
+                            Image(systemName: "hand.thumbsdown.fill")
+                                .resizable()
+                                .frame(width: 100, height: 100)
+                                .foregroundColor(.red)
+                                .opacity(0.8)
+                                .scaleEffect(1)
+                                .animation(.spring(response: 0.3), value: showThumbsDown)
+                                .zIndex(3)
+                        }
+                        
+                        // Save icon overlay
+                        if showSaveIcon {
+                            Image(systemName: "square.and.arrow.down.fill")
+                                .resizable()
+                                .frame(width: 100, height: 100)
+                                .foregroundColor(.purple)
+                                .offset(y: saveIconOffset)
+                                .opacity(0.8)
+                                .scaleEffect(1)
+                                .animation(.spring(response: 0.3).speed(0.7), value: showSaveIcon)
+                                .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: saveIconOffset)
+                                .zIndex(3)
+                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -258,21 +286,13 @@ struct SwipeableVideoPlayer: View {
         }
     }
     
-    // Calculate rotation based on drag
-    private var rotationAngle: Double {
-        let maxAngle = maxRotation
-        let dragPercentage = Double(dragOffset.width + offset.width) / 300
-        return dragPercentage * maxAngle
-    }
-    
     // Handle drag gesture end
     private func onDragEnded(_ gesture: DragGesture.Value) {
-        let dragThreshold = swipeThreshold
         let dragWidth = gesture.translation.width
         let dragHeight = gesture.translation.height
         
         // Check for vertical swipes first
-        if abs(dragHeight) > dragThreshold && abs(dragHeight) > abs(dragWidth) {
+        if abs(dragHeight) > swipeThreshold && abs(dragHeight) > abs(dragWidth) {
             if dragHeight < 0 {
                 // Swipe up - show paper airplane first
                 showPaperAirplane = true
@@ -335,7 +355,7 @@ struct SwipeableVideoPlayer: View {
             }
         }
         // Horizontal swipes
-        else if abs(dragWidth) > dragThreshold && abs(dragWidth) > abs(dragHeight) {
+        else if abs(dragWidth) > swipeThreshold && abs(dragWidth) > abs(dragHeight) {
             let direction: CGFloat = dragWidth > 0 ? 1 : -1
             
             // Show appropriate thumb indicator immediately

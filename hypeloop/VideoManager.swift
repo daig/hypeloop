@@ -17,11 +17,17 @@ struct VideoItem: Codable {
     var playbackUrl: URL {
         URL(string: "https://stream.mux.com/\(playback_id).m3u8")!
     }
+    
+    var thumbnailUrl: URL {
+        // Mux thumbnail URL format
+        URL(string: "https://image.mux.com/\(playback_id)/thumbnail.jpg?time=0")!
+    }
 }
 
 class VideoManager: ObservableObject {
     @Published private(set) var videoStack: [VideoItem] = []
-    @Published var currentPlayer: AVQueuePlayer
+    @Published var currentPlayer: AVPlayer
+    @Published var nextPlayer: AVPlayer
     @Published private(set) var currentVideo: VideoItem?
     @Published var isShowingShareSheet = false
     @Published var itemsToShare: [Any]?
@@ -29,9 +35,9 @@ class VideoManager: ObservableObject {
     @Published private var isLoading = false
     @Published private(set) var allVideosSeen = false
     
-    private var preloadedItem: AVPlayerItem?
-    private var preloadedAsset: AVAsset?
-    private var playerLooper: AVPlayerLooper?
+    // Observers for video end notifications
+    private var currentItemObserver: NSObjectProtocol?
+    private var nextItemObserver: NSObjectProtocol?
     private var seenVideosFilter: BloomFilterStore
     
     // Firestore instance
@@ -39,12 +45,13 @@ class VideoManager: ObservableObject {
     
     init() async {
         print("📹 Initializing VideoManager")
-        // Initialize with a dummy AVQueuePlayer
-        currentPlayer = AVQueuePlayer()
-        
-        // Initialize bloom filter store and wait for it to load
-        print("📹 Creating BloomFilterStore")
+        // Initialize stored properties first
+        currentPlayer = AVPlayer()
+        nextPlayer = AVPlayer()
         seenVideosFilter = BloomFilterStore()
+        
+        // Now we can safely configure players
+        nextPlayer.volume = 0
         
         // Wait for bloom filter to load
         print("📹 Waiting for bloom filter to load...")
@@ -143,12 +150,17 @@ class VideoManager: ObservableObject {
                 
                 // If this is the initial load and we have videos, set up the first video
                 if initial && !videoStack.isEmpty {
-                    setupVideo(videoStack[0])
-                }
-                
-                // Preload the next video if available
-                if let nextVideo = videoStack.dropFirst().first {
-                    preloadVideo(nextVideo)
+                    let firstVideo = videoStack[0]
+                    let item = AVPlayerItem(url: firstVideo.playbackUrl)
+                    currentPlayer.replaceCurrentItem(with: item)
+                    setupPlayerItem(item)
+                    currentVideo = firstVideo
+                    currentPlayer.play()
+                    
+                    // Preload the next video if available
+                    if videoStack.count > 1 {
+                        preloadVideo(videoStack[1])
+                    }
                 }
                 
                 isLoading = false
@@ -168,122 +180,97 @@ class VideoManager: ObservableObject {
         return formatter.string(fromByteCount: size)
     }
     
-    private func setupPlayerItem(_ item: AVPlayerItem) {
-        // Remove existing looper
-        playerLooper?.disableLooping()
-        playerLooper = nil
+    private func setupPlayerItem(_ item: AVPlayerItem, isNext: Bool = false) {
+        // Configure buffer size for instant playback
+        item.preferredForwardBufferDuration = 2  // Buffer 2 seconds for quick start
+        item.preferredPeakBitRate = 0  // Let system determine best bitrate
         
-        // Create new looper for smooth playback
-        playerLooper = AVPlayerLooper(player: currentPlayer, templateItem: item)
-    }
-    
-    private func cleanupCurrentVideo() {
-        currentPlayer.pause()
-        playerLooper?.disableLooping()
-        playerLooper = nil
-        currentPlayer.removeAllItems()
-        print("🎬 Queue cleared during cleanup")
-    }
-    
-    private func logQueueStatus() {
-        let items = currentPlayer.items()
-        print("🎬 Current queue status:")
-        print("  - Total items: \(items.count)")
-        for (index, item) in items.enumerated() {
-            if let urlAsset = item.asset as? AVURLAsset {
-                let url = urlAsset.url
-                if let playbackId = url.lastPathComponent.split(separator: ".").first {
-                    print("  - [\(index)] Video ID: \(playbackId)")
-                }
+        let player = isNext ? nextPlayer : currentPlayer
+        
+        // Remove existing observer if any
+        if isNext {
+            if let observer = nextItemObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        } else {
+            if let observer = currentItemObserver {
+                NotificationCenter.default.removeObserver(observer)
             }
         }
-    }
-    
-    private func setupVideo(_ video: VideoItem) {
-        print("🎬 Setting up video: \(video.id)")
         
-        // Create AVPlayerItem for the video
-        let playerItem = AVPlayerItem(url: video.playbackUrl)
-        
-        // Configure the player item
-        playerItem.preferredForwardBufferDuration = 5  // Buffer 5 seconds ahead
-        
-        // Clear existing queue and add the new item
-        currentPlayer.removeAllItems()
-        print("🎬 Queue cleared")
-        
-        currentPlayer.insert(playerItem, after: nil)
-        print("🎬 Added initial video to queue: \(video.id)")
-        logQueueStatus()
-        
-        setupPlayerItem(playerItem)
-        
-        // Update current video
-        currentVideo = video
-        
-        // Add next video to queue if available
-        if let nextVideo = videoStack.dropFirst().first {
-            preloadVideo(nextVideo)
+        // Add observer for video end to handle looping
+        let observer = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            player.seek(to: .zero)
+            player.play()
         }
         
-        // Start playing
-        currentPlayer.play()
+        // Store observer reference
+        if isNext {
+            nextItemObserver = observer
+        } else {
+            currentItemObserver = observer
+        }
     }
+    
+    private func logPlayerStatus() {
+        print("🎬 Current player status:")
+        print("  - Video stack: \(videoStack.count) videos")
+        if let currentVideo = currentVideo {
+            print("  - Current video: \(currentVideo.id)")
+        }
+        if let nextVideo = videoStack.dropFirst().first {
+            print("  - Next video: \(nextVideo.id)")
+        }
+    }
+    
+
+    
+
     
     private func preloadVideo(_ video: VideoItem) {
         print("📥 Preloading video: \(video.id)")
         
-        // Create an asset for the video
-        let asset = AVURLAsset(url: video.playbackUrl)
-        preloadedAsset = asset
+        // Create an asset for the video with custom loading options
+        let resourceOptions: [String: Any] = [AVURLAssetPreferPreciseDurationAndTimingKey: true]
+        let asset = AVURLAsset(url: video.playbackUrl, options: resourceOptions)
         
         // Load essential properties asynchronously
         Task {
             do {
-                // Load playable status and duration
+                // Load all essential properties for instant playback
                 try await asset.load(.isPlayable, .duration)
                 
-                // Only proceed if this is still the asset we want to preload
-                guard asset === preloadedAsset else {
-                    print("⚠️ Asset changed during preload, cancelling")
-                    return
-                }
-                
-                // Create and configure player item
+                // Create and configure player item for instant playback
                 let item = AVPlayerItem(asset: asset)
-                item.preferredForwardBufferDuration = 5  // Buffer 5 seconds ahead
+                item.preferredForwardBufferDuration = 2  // Small buffer for quick start
+                item.preferredPeakBitRate = 0  // Let system determine best bitrate
                 
                 await MainActor.run {
-                    // Only add to queue if we're still preloading the same asset
-                    if asset === preloadedAsset {
-                        print("✅ Preload complete for video: \(video.id)")
-                        self.preloadedItem = item
-                        
-                        // Add to queue
-                        if let currentLastItem = self.currentPlayer.items().last {
-                            self.currentPlayer.insert(item, after: currentLastItem)
-                            print("🎬 Added preloaded video to queue: \(video.id)")
-                            logQueueStatus()
-                        }
-                    } else {
-                        print("⚠️ Asset changed after item creation, discarding")
-                    }
+                    // Set up next player with the preloaded item
+                    nextPlayer.replaceCurrentItem(with: item)
+                    setupPlayerItem(item, isNext: true)
+                    
+                    // Just seek to start but don't play yet
+                    nextPlayer.seek(to: .zero)
+                    
+                    print("✅ Next player ready with video: \(video.id)")
                 }
             } catch {
                 print("❌ Error preloading video: \(error.localizedDescription)")
-                preloadedAsset = nil
-                preloadedItem = nil
             }
         }
     }
     
     func moveToNextVideo() {
-        cleanupCurrentVideo()
-        
         // Mark current video as seen and remove it
         if let currentVideo = videoStack.first {
             markVideoAsSeen(currentVideo)
             videoStack.removeFirst()
+            self.currentVideo = nil
         }
         
         // If stack is getting low, load more videos
@@ -294,32 +281,30 @@ class VideoManager: ObservableObject {
         // If we've run out of videos, just log it
         if videoStack.isEmpty {
             print("📹 Video stack empty - waiting for manual reload")
+            return
         }
         
-        // Use preloaded item if available
-        if let preloadedItem = preloadedItem {
-            currentPlayer.replaceCurrentItem(with: preloadedItem)
-            setupPlayerItem(preloadedItem)
-            self.preloadedItem = nil
-            self.preloadedAsset = nil
+        // Get the next video
+        if let nextVideo = videoStack.first {
+            // Swap players instantly
+            let oldPlayer = currentPlayer
+            currentPlayer = nextPlayer
+            nextPlayer = oldPlayer
+            
+            // Update volume and start playing new current video
+            currentPlayer.volume = 1
             currentPlayer.play()
             
-            // Immediately start preloading the next video
-            if let nextVideo = videoStack.dropFirst().first {
-                preloadVideo(nextVideo)
-            }
-        } else {
-            // Fallback to regular loading
-            if let nextVideo = videoStack.first {
-                let nextItem = AVPlayerItem(url: nextVideo.playbackUrl)
-                currentPlayer.replaceCurrentItem(with: nextItem)
-                setupPlayerItem(nextItem)
-                currentPlayer.play()
-                
-                // Immediately start preloading the next video
-                if let followingVideo = videoStack.dropFirst().first {
-                    preloadVideo(followingVideo)
-                }
+            // Stop and mute old player
+            nextPlayer.pause()
+            nextPlayer.volume = 0
+            
+            // Update state
+            self.currentVideo = nextVideo
+            
+            // Start preloading the next video if available
+            if let followingVideo = videoStack.dropFirst().first {
+                preloadVideo(followingVideo)
             }
         }
     }
@@ -366,6 +351,16 @@ class VideoManager: ObservableObject {
     }
     
     deinit {
-        cleanupCurrentVideo()
+        // Remove observers
+        if let observer = currentItemObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = nextItemObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        
+        // Stop playback
+        currentPlayer.pause()
+        nextPlayer.pause()
     }
 } 
