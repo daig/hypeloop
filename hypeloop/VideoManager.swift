@@ -3,6 +3,7 @@ import SwiftUI
 import AVKit
 import FirebaseFunctions
 import FirebaseFirestore
+import FirebaseAuth
 
 struct VideoItem: Codable {
     let id: String
@@ -26,11 +27,14 @@ class VideoManager: ObservableObject {
     @Published var itemsToShare: [Any]?
     @Published private(set) var savedVideos: [VideoItem] = []
     @Published private var isLoading = false
+    @Published private(set) var allVideosSeen = false
     
     private var preloadedItem: AVPlayerItem?
     private var preloadedAsset: AVAsset?
     private var playerItemObserver: NSObjectProtocol?
-    private var seenVideoIds: Set<String> = []  // Track seen videos
+    private var seenVideosFilter: BloomFilter
+    private let userDefaults = UserDefaults.standard
+    private static let BLOOM_FILTER_KEY = "seen_videos_bloom_filter"
     private var videosListener: ListenerRegistration?
     
     // Firestore instance
@@ -40,10 +44,15 @@ class VideoManager: ObservableObject {
         // Initialize with a dummy AVPlayer
         currentPlayer = AVPlayer()
         
-        // Load videos
-        loadVideos(initial: true)
+        // Initialize or load bloom filter
+        if let filterData = userDefaults.data(forKey: VideoManager.BLOOM_FILTER_KEY) {
+            seenVideosFilter = BloomFilter.deserialize(filterData)
+        } else {
+            seenVideosFilter = BloomFilter()
+        }
         
         // Set up real-time listener for new videos
+        // Initial load will be handled by the listener
         setupVideosListener()
     }
     
@@ -71,32 +80,66 @@ class VideoManager: ObservableObject {
                     }
                 }
                 
-                // Filter out videos we've already seen
-                let unseenVideos = newVideos.filter { !self.seenVideoIds.contains($0.id) }
+                // Filter out videos we've already seen using bloom filter
+                let unseenVideos = newVideos.filter { !self.seenVideosFilter.mightContain($0.id) }
                 
                 // Update the video stack
                 Task { @MainActor in
-                    // If this is our first load and we have no videos, set up the first video
-                    if self.videoStack.isEmpty && !newVideos.isEmpty {
-                        self.videoStack = newVideos
-                        self.setupVideo(newVideos[0])
+                    print("📹 Listener received \(unseenVideos.count) unseen videos out of \(newVideos.count) total")
+                    
+                    // Always filter and only append unseen videos
+                    if !unseenVideos.isEmpty {
+                        // If we already have videos in the stack, just append new ones
+                        if !self.videoStack.isEmpty {
+                            self.videoStack.append(contentsOf: unseenVideos)
+                        } else {
+                            // This is our first load, set up the first video
+                            self.videoStack = unseenVideos
+                            self.setupVideo(unseenVideos[0])
+                            self.markVideoAsSeen(unseenVideos[0])
+                            
+                            // Preload the next video if available
+                            if unseenVideos.count > 1 {
+                                self.preloadVideo(unseenVideos[1])
+                            }
+                        }
                     } else {
-                        // Otherwise, just append new unseen videos
-                        self.videoStack.append(contentsOf: unseenVideos)
+                        print("📹 No new unseen videos from listener")
                     }
                     
-                    // Preload the next video if available
-                    if let nextVideo = self.videoStack.dropFirst().first {
-                        self.preloadVideo(nextVideo)
-                    }
+                    // Update allVideosSeen status
+                    self.allVideosSeen = unseenVideos.isEmpty && !newVideos.isEmpty
                 }
             }
     }
     
+    private func markVideoAsSeen(_ video: VideoItem) {
+        print("📹 Marking video as seen: \(video.id)")
+        seenVideosFilter.add(video.id)
+        
+        // Save to UserDefaults
+        let filterData = seenVideosFilter.serialize()
+        userDefaults.set(filterData, forKey: VideoManager.BLOOM_FILTER_KEY)
+        
+        // Optionally sync with Firestore for cross-device support
+        Task {
+            do {
+                try await db.collection("users").document(Auth.auth().currentUser?.uid ?? "").collection("seen_videos").document(video.id).setData([
+                    "timestamp": FieldValue.serverTimestamp()
+                ])
+            } catch {
+                print("Error syncing seen video to Firestore: \(error)")
+            }
+        }
+    }
+    
     func loadVideos(initial: Bool = false) {
         Task { @MainActor in
-            // If not initial load and we already have videos, don't reload
-            guard initial || videoStack.isEmpty else { return }
+            // Always allow loading on initial or when stack is empty
+            if !initial && !videoStack.isEmpty {
+                print("📹 Skipping video load - stack not empty")
+                return
+            }
             
             isLoading = true
             
@@ -127,8 +170,16 @@ class VideoManager: ObservableObject {
                 
                 print("✅ Received \(newVideos.count) ready videos")
                 
+                print("📹 Processing \(newVideos.count) videos for filtering")
                 // Filter out videos we've already seen
-                let unseenVideos = newVideos.filter { !seenVideoIds.contains($0.id) }
+                let unseenVideos = newVideos.filter { video in
+                    let isSeen = self.seenVideosFilter.mightContain(video.id)
+                    print("📹 Video \(video.id): seen=\(isSeen)")
+                    return !isSeen
+                }
+                
+                // Update allVideosSeen status
+                allVideosSeen = unseenVideos.isEmpty && !newVideos.isEmpty
                 
                 // Add new videos to the stack
                 videoStack.append(contentsOf: unseenVideos)
@@ -256,7 +307,7 @@ class VideoManager: ObservableObject {
         
         // Mark current video as seen and remove it
         if let currentVideo = videoStack.first {
-            seenVideoIds.insert(currentVideo.id)
+            markVideoAsSeen(currentVideo)
             videoStack.removeFirst()
         }
         
@@ -265,9 +316,9 @@ class VideoManager: ObservableObject {
             loadVideos()
         }
         
-        // Reset seen videos if we've seen them all
-        if seenVideoIds.count == videoStack.count && !videoStack.isEmpty {
-            seenVideoIds.removeAll()
+        // If we've run out of videos, just log it
+        if videoStack.isEmpty {
+            print("📹 Video stack empty - waiting for manual reload")
         }
         
         // Use preloaded item if available

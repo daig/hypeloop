@@ -41,6 +41,7 @@ struct CreateTabView: View {
     @State private var selectedVideoURL: URL? = nil
     @State private var description: String = ""
     @State private var isUploading = false
+    @State private var isOptimizing = false
     @State private var uploadProgress: Double = 0.0
     @State private var showAlert = false
     @State private var alertMessage = ""
@@ -128,13 +129,19 @@ struct CreateTabView: View {
     
     private var uploadProgressView: some View {
         Group {
-            if selectedVideoURL != nil && isUploading {
+            if selectedVideoURL != nil && (isOptimizing || isUploading) {
                 VStack {
-                    ProgressView("Uploading...", value: uploadProgress, total: 100)
-                        .progressViewStyle(.linear)
-                        .foregroundColor(.white)
-                    Text("\(Int(uploadProgress))%")
-                        .foregroundColor(.white)
+                    if isOptimizing {
+                        ProgressView("Optimizing video...")
+                            .progressViewStyle(.circular)
+                            .foregroundColor(.white)
+                    } else {
+                        ProgressView("Uploading...", value: uploadProgress, total: 100)
+                            .progressViewStyle(.linear)
+                            .foregroundColor(.white)
+                        Text("\(Int(uploadProgress))%")
+                            .foregroundColor(.white)
+                    }
                 }
                 .padding()
             }
@@ -157,7 +164,7 @@ struct CreateTabView: View {
                 await uploadVideo()
             }
         }) {
-            if isUploading {
+            if isUploading || isOptimizing {
                 ProgressView()
                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
                     .frame(maxWidth: .infinity)
@@ -181,7 +188,7 @@ struct CreateTabView: View {
         .foregroundColor(.white)
         .cornerRadius(8)
         .padding(.horizontal)
-        .disabled(selectedVideoURL == nil || description.isEmpty || isUploading)
+        .disabled(selectedVideoURL == nil || description.isEmpty || isUploading || isOptimizing)
     }
     
     var body: some View {
@@ -238,17 +245,36 @@ struct CreateTabView: View {
         let outputURL = tempDir.appendingPathComponent("\(UUID().uuidString).mp4")
         
         let asset = AVAsset(url: sourceURL)
+        
+        // Create AVAssetTrack for video
+        guard let videoTrack = try? await asset.loadTracks(withMediaType: .video).first else {
+            throw NSError(domain: "VideoExport", code: -1, userInfo: [NSLocalizedDescriptionKey: "No video track found"])
+        }
+        
+        // Get video dimensions and transform
+        let naturalSize = try await videoTrack.load(.naturalSize)
+        let preferredTransform = try await videoTrack.load(.preferredTransform)
+        
+        // Calculate transformed dimensions
+        let transformedSize = naturalSize.applying(preferredTransform)
+        let videoIsPortrait = abs(transformedSize.height) > abs(transformedSize.width)
+        
+        // Choose appropriate export preset based on video orientation
+        let exportPreset = videoIsPortrait ? AVAssetExportPreset960x540 : AVAssetExportPreset1280x720
+        
         guard let exportSession = AVAssetExportSession(
             asset: asset,
-            presetName: AVAssetExportPreset1920x1080
+            presetName: exportPreset
         ) else {
             throw NSError(domain: "VideoExport", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create export session"])
         }
         
+        // Configure export session
         exportSession.outputURL = outputURL
         exportSession.outputFileType = .mp4
         exportSession.shouldOptimizeForNetworkUse = true
         
+        // Export the video
         await exportSession.export()
         
         guard exportSession.status == .completed else {
@@ -304,12 +330,14 @@ struct CreateTabView: View {
         guard isAuthenticated else { return }
         guard let videoURL = selectedVideoURL else { return }
         
-        isUploading = true
+        isOptimizing = true
         uploadProgress = 0
         
         do {
             // Optimize video before upload
             let optimizedURL = try await optimizeVideo(from: videoURL)
+            isOptimizing = false
+            isUploading = true
             
             // Get file size and prepare for upload
             let fileAttributes = try FileManager.default.attributesOfItem(atPath: optimizedURL.path)
