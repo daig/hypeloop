@@ -121,7 +121,6 @@ struct LoginView: View {
                             isLoading = true
                             do {
                                 try await authService.signIn(email: email, password: password)
-                                isLoggedIn = true
                             } catch {
                                 errorMessage = handleAuthError(error)
                             }

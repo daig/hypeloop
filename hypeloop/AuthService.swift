@@ -11,7 +11,11 @@ class AuthService: ObservableObject {
     static let shared = AuthService()
     
     private init() {
-        // Listen for auth state changes.
+        // Set initial state based on current Firebase Auth state
+        self.user = Auth.auth().currentUser
+        self.isAuthenticated = Auth.auth().currentUser != nil
+        
+        // Listen for auth state changes
         Auth.auth().addStateDidChangeListener { [weak self] _, user in
             DispatchQueue.main.async {
                 self?.user = user

@@ -11,7 +11,7 @@ import FirebaseAuth
 
 @main
 struct hypeloopApp: App {
-    @State private var isLoggedIn = false
+    @StateObject private var authService = AuthService.shared
     
     init() {
         FirebaseApp.configure()
@@ -19,10 +19,10 @@ struct hypeloopApp: App {
     
     var body: some Scene {
         WindowGroup {
-            if isLoggedIn {
-                ContentView(isLoggedIn: $isLoggedIn)
+            if authService.isAuthenticated {
+                ContentView(isLoggedIn: .constant(true))
             } else {
-                LoginView(isLoggedIn: $isLoggedIn)
+                LoginView(isLoggedIn: .constant(false))
             }
         }
     }
