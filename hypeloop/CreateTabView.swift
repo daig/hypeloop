@@ -5,6 +5,7 @@ import FirebaseStorage
 import AVFoundation
 import FirebaseFunctions
 import FirebaseAuth
+import FirebaseFirestore
 
 struct MuxUploadResponse: Codable {
     let uploadUrl: String
@@ -45,8 +46,9 @@ struct CreateTabView: View {
     @State private var alertMessage = ""
     @State private var currentUploadId: String? = nil
     
-    // Shared Functions instance
+    // Shared instances
     private let functions = Functions.functions(region: "us-central1")
+    private let db = Firestore.firestore()
     
     private var isAuthenticated: Bool {
         Auth.auth().currentUser != nil
@@ -300,7 +302,6 @@ struct CreateTabView: View {
     
     private func uploadVideo() async {
         guard isAuthenticated else { return }
-        
         guard let videoURL = selectedVideoURL else { return }
         
         isUploading = true
@@ -324,8 +325,23 @@ struct CreateTabView: View {
             print("Got Mux upload ID: \(muxResponse.uploadId)")
             currentUploadId = muxResponse.uploadId
             
+            // Create initial Firestore document
+            let creator = Auth.auth().currentUser?.displayName ?? Auth.auth().currentUser?.email ?? "Anonymous"
+            try await db.collection("videos").document(muxResponse.uploadId).setData([
+                "id": muxResponse.uploadId,
+                "creator": creator,
+                "description": description,
+                "created_at": Int(Date().timeIntervalSince1970 * 1000), // Convert to milliseconds as integer
+                "status": "uploading"
+            ])
+            
             // Upload to Mux
             try await uploadToMux(videoURL: optimizedURL, uploadURL: muxResponse.uploadUrl)
+            
+            // Update video status
+            if let uploadId = currentUploadId {
+                await updateVideoStatus(assetId: uploadId, playbackId: uploadId)
+            }
             
             // Clean up temporary files
             try? FileManager.default.removeItem(at: optimizedURL)
@@ -338,11 +354,25 @@ struct CreateTabView: View {
             isUploading = false
             uploadProgress = 0
             
+            // Show success message
+            alertMessage = "Video uploaded successfully! It will be available once processing is complete."
+            showAlert = true
+            
         } catch {
             alertMessage = "Upload failed: \(error.localizedDescription)"
             showAlert = true
             isUploading = false
             uploadProgress = 0
+        }
+    }
+    
+    private func updateVideoStatus(assetId: String, playbackId: String) async {
+        do {
+            try await db.collection("videos").document(assetId).updateData([
+                "status": "uploading"
+            ])
+        } catch {
+            print("Error updating video status: \(error.localizedDescription)")
         }
     }
 }

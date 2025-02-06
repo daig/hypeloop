@@ -22,119 +22,12 @@ struct SavedVideosTabView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 
-                if videoManager.savedVideos.isEmpty {
-                    Text("No saved videos yet")
-                        .foregroundColor(.gray)
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: columns, spacing: 12) {
-                            ForEach(videoManager.savedVideos, id: \.id) { video in
-                                ZStack(alignment: .bottomLeading) {
-                                    // Thumbnail
-                                    AsyncImage(url: video.thumbnailUrl) { image in
-                                        image
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fill)
-                                    } placeholder: {
-                                        Rectangle()
-                                            .fill(Color.gray.opacity(0.3))
-                                    }
-                                    .frame(width: (UIScreen.main.bounds.width - 36) / 2, height: 280)
-                                    .clipped()
-                                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                                    
-                                    // Gradient overlay
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                    .frame(width: (UIScreen.main.bounds.width - 36) / 2, height: 280)
-                                    
-                                    // Text overlay
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("@\(video.creator)")
-                                            .font(.headline)
-                                            .bold()
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                            .frame(maxWidth: (UIScreen.main.bounds.width - 36) / 2 - 24, alignment: .leading)
-                                        
-                                        Text(video.description)
-                                            .font(.subheadline)
-                                            .lineLimit(2)
-                                            .truncationMode(.tail)
-                                            .frame(maxWidth: (UIScreen.main.bounds.width - 36) / 2 - 24, alignment: .leading)
-                                        
-                                        // Download button
-                                        if let progress = downloadProgress[video.id], progress < 1.0 {
-                                            VStack(alignment: .leading, spacing: 4) {
-                                                ProgressView(value: progress)
-                                                    .progressViewStyle(.linear)
-                                                    .tint(.blue)
-                                                    .frame(maxWidth: (UIScreen.main.bounds.width - 36) / 2 - 24)
-                                                
-                                                HStack {
-                                                    Text("\(Int(progress * 100))%")
-                                                        .font(.caption)
-                                                        .lineLimit(1)
-                                                    
-                                                    Spacer()
-                                                    
-                                                    Button(action: {
-                                                        downloadTasks[video.id]?.cancel()
-                                                        downloadTasks[video.id] = nil
-                                                        downloadProgress[video.id] = nil
-                                                    }) {
-                                                        Image(systemName: "xmark.circle.fill")
-                                                            .foregroundColor(.white)
-                                                    }
-                                                    .buttonStyle(.plain)
-                                                }
-                                            }
-                                        } else {
-                                            Button(action: {
-                                                startDownload(video)
-                                            }) {
-                                                HStack {
-                                                    Image(systemName: copiedVideoId == video.id ? "checkmark" : "arrow.down.circle")
-                                                    Text(copiedVideoId == video.id ? "Copied!" : "Download Video")
-                                                        .lineLimit(1)
-                                                }
-                                                .foregroundColor(.white)
-                                                .font(.caption)
-                                            }
-                                            .frame(maxWidth: (UIScreen.main.bounds.width - 36) / 2 - 24, alignment: .leading)
-                                            .simultaneousGesture(
-                                                LongPressGesture(minimumDuration: 0.5).onEnded { _ in
-                                                    UIPasteboard.general.string = video.url.absoluteString
-                                                    copiedVideoId = video.id
-                                                    
-                                                    // Reset the copied status after 2 seconds
-                                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                                        if copiedVideoId == video.id {
-                                                            copiedVideoId = nil
-                                                        }
-                                                    }
-                                                }
-                                            )
-                                        }
-                                    }
-                                    .padding(12)
-                                }
-                                .frame(width: (UIScreen.main.bounds.width - 36) / 2, height: 280)
-                                .contextMenu {
-                                    Button(role: .destructive) {
-                                        if let index = videoManager.savedVideos.firstIndex(where: { $0.id == video.id }) {
-                                            videoManager.removeSavedVideo(at: IndexSet(integer: index))
-                                        }
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                }
-                            }
-                        }
-                        .padding(12)
+                Group {
+                    if videoManager.savedVideos.isEmpty {
+                        Text("No saved videos yet")
+                            .foregroundColor(.gray)
+                    } else {
+                        savedVideosGrid
                     }
                 }
             }
@@ -151,12 +44,129 @@ struct SavedVideosTabView: View {
         }
     }
     
+    private var savedVideosGrid: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(videoManager.savedVideos, id: \.id) { video in
+                    savedVideoCell(for: video)
+                }
+            }
+            .padding(12)
+        }
+    }
+    
+    private func savedVideoCell(for video: VideoItem) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            // Thumbnail
+            AsyncImage(url: URL(string: "https://image.mux.com/\(video.playback_id)/thumbnail.jpg?time=0&width=200&fit_mode=preserve&quality=75")) { image in
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } placeholder: {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+            }
+            .frame(width: (UIScreen.main.bounds.width - 36) / 2, height: 280)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            
+            // Gradient overlay
+            LinearGradient(
+                gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            
+            // Text overlay
+            VStack(alignment: .leading, spacing: 4) {
+                Text("@\(video.creator)")
+                    .font(.headline)
+                    .bold()
+                    .lineLimit(1)
+                
+                Text(video.description)
+                    .font(.subheadline)
+                    .lineLimit(2)
+                
+                // Download button
+                if let progress = downloadProgress[video.id], progress < 1.0 {
+                    downloadProgressView(for: video, progress: progress)
+                } else {
+                    downloadButton(for: video)
+                }
+            }
+            .padding(12)
+        }
+        .frame(width: (UIScreen.main.bounds.width - 36) / 2, height: 280)
+        .contextMenu {
+            Button(role: .destructive) {
+                if let index = videoManager.savedVideos.firstIndex(where: { $0.id == video.id }) {
+                    videoManager.removeSavedVideo(at: IndexSet(integer: index))
+                }
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+    
+    private func downloadProgressView(for video: VideoItem, progress: Double) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ProgressView(value: progress)
+                .progressViewStyle(.linear)
+                .tint(.blue)
+            
+            HStack {
+                Text("\(Int(progress * 100))%")
+                    .font(.caption)
+                
+                Spacer()
+                
+                Button(action: {
+                    downloadTasks[video.id]?.cancel()
+                    downloadTasks[video.id] = nil
+                    downloadProgress[video.id] = nil
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.white)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+    
+    private func downloadButton(for video: VideoItem) -> some View {
+        Button(action: {
+            startDownload(video)
+        }) {
+            HStack {
+                Image(systemName: copiedVideoId == video.id ? "checkmark" : "arrow.down.circle")
+                Text(copiedVideoId == video.id ? "Copied!" : "Download Video")
+                    .lineLimit(1)
+            }
+            .foregroundColor(.white)
+            .font(.caption)
+        }
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                UIPasteboard.general.string = video.playbackUrl.absoluteString
+                copiedVideoId = video.id
+                
+                // Reset the copied status after 2 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    if copiedVideoId == video.id {
+                        copiedVideoId = nil
+                    }
+                }
+            }
+        )
+    }
+    
     private func startDownload(_ video: VideoItem) {
         guard downloadTasks[video.id] == nil else { return }
         
         // Construct the MP4 download URL
         // Using Mux's capped-1080p.mp4 format which is optimized for download
-        let downloadURL = URL(string: "https://stream.mux.com/\(video.playbackId)/capped-1080p.mp4")!
+        let downloadURL = URL(string: "https://stream.mux.com/\(video.playback_id)/capped-1080p.mp4")!
         
         let session = URLSession(configuration: .default)
         let downloadTask = session.downloadTask(with: downloadURL) { localURL, response, error in

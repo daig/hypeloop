@@ -2,32 +2,25 @@ import Foundation
 import SwiftUI
 import AVKit
 import FirebaseFunctions
+import FirebaseFirestore
 
-struct VideoItem: Identifiable {
+struct VideoItem: Codable {
     let id: String
-    let url: URL
+    let playback_id: String
     let creator: String
     let description: String
-    let updatedTime: Date
-    let playbackId: String
-    let thumbnailUrl: URL
+    let created_at: Double
+    let status: String
     
-    init(id: String, playbackId: String, creator: String = "User", description: String = "", updatedTime: Date = Date()) {
-        self.id = id
-        self.playbackId = playbackId
-        // Construct the Mux playback URL
-        self.url = URL(string: "https://stream.mux.com/\(playbackId).m3u8")!
-        // Construct the Mux thumbnail URL (using a static image at 0s with quality optimization)
-        self.thumbnailUrl = URL(string: "https://image.mux.com/\(playbackId)/thumbnail.jpg?time=0&width=200&fit_mode=preserve&quality=75")!
-        self.creator = creator
-        self.description = description
-        self.updatedTime = updatedTime
+    var playbackUrl: URL {
+        URL(string: "https://stream.mux.com/\(playback_id).m3u8")!
     }
 }
 
 class VideoManager: ObservableObject {
     @Published private(set) var videoStack: [VideoItem] = []
-    @Published private(set) var currentPlayer: AVPlayer
+    @Published var currentPlayer: AVPlayer
+    @Published private(set) var currentVideo: VideoItem?
     @Published var isShowingShareSheet = false
     @Published var itemsToShare: [Any]?
     @Published private(set) var savedVideos: [VideoItem] = []
@@ -37,19 +30,69 @@ class VideoManager: ObservableObject {
     private var preloadedAsset: AVAsset?
     private var playerItemObserver: NSObjectProtocol?
     private var seenVideoIds: Set<String> = []  // Track seen videos
+    private var videosListener: ListenerRegistration?
     
-    // Shared Functions instance
-    private let functions = Functions.functions(region: "us-central1")
+    // Firestore instance
+    private let db = Firestore.firestore()
     
     init() {
         // Initialize with a dummy AVPlayer
         currentPlayer = AVPlayer()
         
-        // Load videos from Mux
-        loadVideosFromMux(initial: true)
+        // Load videos
+        loadVideos(initial: true)
+        
+        // Set up real-time listener for new videos
+        setupVideosListener()
     }
     
-    func loadVideosFromMux(initial: Bool = false) {
+    private func setupVideosListener() {
+        videosListener = db.collection("videos")
+            .whereField("status", isEqualTo: "ready")
+            .order(by: "created_at", descending: true)
+            .limit(to: 50)
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self = self else { return }
+                
+                if let error = error {
+                    print("Error listening for video updates: \(error.localizedDescription)")
+                    return
+                }
+                
+                guard let snapshot = snapshot else { return }
+                
+                let newVideos = snapshot.documents.compactMap { document -> VideoItem? in
+                    do {
+                        return try document.data(as: VideoItem.self)
+                    } catch {
+                        print("Error decoding video: \(error.localizedDescription)")
+                        return nil
+                    }
+                }
+                
+                // Filter out videos we've already seen
+                let unseenVideos = newVideos.filter { !self.seenVideoIds.contains($0.id) }
+                
+                // Update the video stack
+                Task { @MainActor in
+                    // If this is our first load and we have no videos, set up the first video
+                    if self.videoStack.isEmpty && !newVideos.isEmpty {
+                        self.videoStack = newVideos
+                        self.setupVideo(newVideos[0])
+                    } else {
+                        // Otherwise, just append new unseen videos
+                        self.videoStack.append(contentsOf: unseenVideos)
+                    }
+                    
+                    // Preload the next video if available
+                    if let nextVideo = self.videoStack.dropFirst().first {
+                        self.preloadVideo(nextVideo)
+                    }
+                }
+            }
+    }
+    
+    func loadVideos(initial: Bool = false) {
         Task { @MainActor in
             // If not initial load and we already have videos, don't reload
             guard initial || videoStack.isEmpty else { return }
@@ -57,77 +100,55 @@ class VideoManager: ObservableObject {
             isLoading = true
             
             do {
-                print("📡 Fetching videos from Mux...")
+                print("📡 Fetching videos from Firestore...")
                 
-                let callable = functions.httpsCallable("listMuxAssets")
-                let result = try await callable.call([
-                    "debug": true,
-                    "timestamp": Date().timeIntervalSince1970,
-                    "client": "ios",
-                    "requestId": UUID().uuidString
-                ])
+                // Debug: First check all videos regardless of status
+                let allVideos = try await db.collection("videos").getDocuments()
+                print("📊 Debug: Found \(allVideos.documents.count) total videos in Firestore")
+                print("📊 Debug: Video statuses: \(allVideos.documents.map { $0.data()["status"] as? String ?? "unknown" })")
                 
-                guard let response = result.data as? [String: Any],
-                      let videoData = response["videos"] as? [[String: Any]] else {
-                    print("❌ Invalid response format")
-                    return
-                }
+                // Now perform our filtered query
+                let snapshot = try await db.collection("videos")
+                    .whereField("status", isEqualTo: "ready")
+                    .order(by: "created_at", descending: true)
+                    .limit(to: 50)
+                    .getDocuments()
                 
-                print("✅ Received \(videoData.count) videos from Mux")
-                
-                // Convert the response data to VideoItems
-                let newVideos = videoData.compactMap { data -> VideoItem? in
-                    guard let id = data["id"] as? String,
-                          let playbackId = data["playback_id"] as? String,
-                          let creator = data["creator"] as? String,
-                          let description = data["description"] as? String,
-                          let createdAt = data["created_at"] as? Double else {
-                        print("⚠️ Skipping invalid video data")
+                let newVideos = snapshot.documents.compactMap { document -> VideoItem? in
+                    do {
+                        return try document.data(as: VideoItem.self)
+                    } catch {
+                        print("❌ Error decoding video: \(error.localizedDescription)")
+                        print("📄 Document data: \(document.data())")
                         return nil
                     }
-                    
-                    return VideoItem(
-                        id: id,
-                        playbackId: playbackId,
-                        creator: creator,
-                        description: description,
-                        updatedTime: Date(timeIntervalSince1970: createdAt / 1000) // Convert from milliseconds to seconds
-                    )
                 }
+                
+                print("✅ Received \(newVideos.count) ready videos")
                 
                 // Filter out videos we've already seen
-                let filteredVideos = newVideos.filter { video in
-                    initial || !seenVideoIds.contains(video.id)
+                let unseenVideos = newVideos.filter { !seenVideoIds.contains($0.id) }
+                
+                // Add new videos to the stack
+                videoStack.append(contentsOf: unseenVideos)
+                
+                // If this is the initial load and we have videos, set up the first video
+                if initial && !videoStack.isEmpty {
+                    setupVideo(videoStack[0])
                 }
                 
-                if initial {
-                    print("🔄 Setting initial video stack with \(filteredVideos.count) videos")
-                    self.videoStack = filteredVideos
-                } else {
-                    print("➕ Appending \(filteredVideos.count) new videos to stack")
-                    self.videoStack.append(contentsOf: filteredVideos)
+                // Preload the next video if available
+                if let nextVideo = videoStack.dropFirst().first {
+                    preloadVideo(nextVideo)
                 }
                 
-                if self.currentPlayer.currentItem == nil, let firstVideo = self.videoStack.first {
-                    print("▶️ Loading first video: \(firstVideo.id)")
-                    let item = AVPlayerItem(url: firstVideo.url)
-                    self.currentPlayer.replaceCurrentItem(with: item)
-                    self.setupPlayerItem(item)
-                    self.currentPlayer.play()  // Start playing immediately
-                    self.preloadNextVideo()    // And preload the next video
-                }
+                isLoading = false
                 
             } catch {
-                print("❌ Error fetching videos: \(error.localizedDescription)")
-                if let nsError = error as NSError? {
-                    print("🔍 Error details - Domain: \(nsError.domain), Code: \(nsError.code)")
-                    if let details = nsError.userInfo["details"] as? [String: Any] {
-                        print("📝 Error details: \(details)")
-                    }
-                }
+                print("❌ Error loading videos:", error)
+                print("📄 Error details:", (error as NSError).userInfo)
+                isLoading = false
             }
-            
-            isLoading = false
         }
     }
     
@@ -164,29 +185,67 @@ class VideoManager: ObservableObject {
         currentPlayer.replaceCurrentItem(with: nil)
     }
     
-    func preloadNextVideo() {
-        guard videoStack.count > 1 else {
-            print("⚠️ Cannot preload - no more videos in stack")
-            return
-        }
-        let nextVideo = videoStack[1]
-        print("🔄 Preloading next video: \(nextVideo.id)")
+    private func setupVideo(_ video: VideoItem) {
+        print("🎬 Setting up video: \(video.id)")
         
-        let asset = AVAsset(url: nextVideo.url)
+        // Create AVPlayerItem for the video
+        let playerItem = AVPlayerItem(url: video.playbackUrl)
+        
+        // Configure the player item
+        playerItem.preferredForwardBufferDuration = 5  // Buffer 5 seconds ahead
+        
+        // Replace the current item and set up observers
+        currentPlayer.replaceCurrentItem(with: playerItem)
+        setupPlayerItem(playerItem)
+        
+        // Update current video
+        currentVideo = video
+        
+        // Start playing
+        currentPlayer.play()
+        
+        // Start preloading the next video
+        if let nextVideo = videoStack.dropFirst().first {
+            preloadVideo(nextVideo)
+        }
+    }
+    
+    private func preloadVideo(_ video: VideoItem) {
+        print("📥 Preloading video: \(video.id)")
+        
+        // Create an asset for the video
+        let asset = AVURLAsset(url: video.playbackUrl)
         preloadedAsset = asset
         
+        // Load essential properties asynchronously
         Task {
-            print("📥 Starting preload of video properties for: \(nextVideo.id)")
-            await asset.loadValues(forKeys: ["playable", "duration"])
-            
-            if asset === preloadedAsset {
-                let item = AVPlayerItem(asset: asset)
-                await MainActor.run {
-                    print("✅ Preload complete for video: \(nextVideo.id)")
-                    self.preloadedItem = item
+            do {
+                // Load playable status and duration
+                try await asset.load(.isPlayable, .duration)
+                
+                // Only proceed if this is still the asset we want to preload
+                guard asset === preloadedAsset else {
+                    print("⚠️ Asset changed during preload, cancelling")
+                    return
                 }
-            } else {
-                print("⚠️ Preload cancelled - asset no longer current")
+                
+                // Create and configure player item
+                let item = AVPlayerItem(asset: asset)
+                item.preferredForwardBufferDuration = 5  // Buffer 5 seconds ahead
+                
+                await MainActor.run {
+                    // Only store the preloaded item if we're still preloading the same asset
+                    if asset === preloadedAsset {
+                        print("✅ Preload complete for video: \(video.id)")
+                        self.preloadedItem = item
+                    } else {
+                        print("⚠️ Asset changed after item creation, discarding")
+                    }
+                }
+            } catch {
+                print("❌ Error preloading video: \(error.localizedDescription)")
+                preloadedAsset = nil
+                preloadedItem = nil
             }
         }
     }
@@ -202,7 +261,7 @@ class VideoManager: ObservableObject {
         
         // If stack is getting low, load more videos
         if videoStack.count < 3 {
-            loadVideosFromMux()
+            loadVideos()
         }
         
         // Reset seen videos if we've seen them all
@@ -219,17 +278,21 @@ class VideoManager: ObservableObject {
             currentPlayer.play()
             
             // Immediately start preloading the next video
-            preloadNextVideo()
+            if let nextVideo = videoStack.dropFirst().first {
+                preloadVideo(nextVideo)
+            }
         } else {
             // Fallback to regular loading
             if let nextVideo = videoStack.first {
-                let nextItem = AVPlayerItem(url: nextVideo.url)
+                let nextItem = AVPlayerItem(url: nextVideo.playbackUrl)
                 currentPlayer.replaceCurrentItem(with: nextItem)
                 setupPlayerItem(nextItem)
                 currentPlayer.play()
                 
                 // Immediately start preloading the next video
-                preloadNextVideo()
+                if let followingVideo = videoStack.dropFirst().first {
+                    preloadVideo(followingVideo)
+                }
             }
         }
     }
@@ -277,5 +340,6 @@ class VideoManager: ObservableObject {
     
     deinit {
         cleanupCurrentVideo()
+        videosListener?.remove()  // Clean up Firestore listener
     }
 } 

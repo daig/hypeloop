@@ -82,4 +82,18 @@ DerivedData/
 *.perspectivev3
 !default.perspectivev3
 *.xccheckout
-*.xcscmblueprint 
+*.xcscmblueprint
+
+# Firebase service account key
+functions/serviceAccountKey.json
+
+# Shell scripts
+*.sh
+
+# Environment files
+functions/.env
+
+# Firebase logs
+firebase-debug.log
+ui-debug.log
+.firebase/ 

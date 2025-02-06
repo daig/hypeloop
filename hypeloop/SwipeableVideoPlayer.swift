@@ -108,10 +108,13 @@ struct SwipeableVideoPlayer: View {
                         
                         Button(action: {
                             isRefreshing = true
-                            videoManager.loadVideosFromMux(initial: true)
-                            // Set isRefreshing back to false after a short delay
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                                isRefreshing = false
+                            Task {
+                                await videoManager.loadVideos(initial: true)
+                                // Set isRefreshing back to false after a short delay
+                                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                                await MainActor.run {
+                                    isRefreshing = false
+                                }
                             }
                         }) {
                             Text("Tap to refresh")
