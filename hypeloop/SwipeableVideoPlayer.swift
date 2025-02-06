@@ -87,23 +87,21 @@ struct SwipeableVideoPlayer: View {
                 // Empty state with refresh button
                 if videoManager.videoStack.isEmpty {
                     VStack(spacing: 16) {
-                        Image(systemName: videoManager.allVideosSeen ? "checkmark.circle.fill" : "arrow.clockwise.circle.fill")
+                        Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 60))
                             .foregroundColor(.white)
                             .rotationEffect(.degrees(isRefreshing ? 360 : 0))
                             .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
                         
-                        Text(videoManager.allVideosSeen ? "You're all caught up!" : "No videos available")
+                        Text("You're all caught up!")
                             .foregroundColor(.white)
                             .font(.headline)
                         
-                        if videoManager.allVideosSeen {
-                            Text("Check back later for new videos")
-                                .foregroundColor(.gray)
-                                .font(.subheadline)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal)
-                        }
+                        Text("Check back later for new videos")
+                            .foregroundColor(.gray)
+                            .font(.subheadline)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
                         
                         Button(action: {
                             isRefreshing = true

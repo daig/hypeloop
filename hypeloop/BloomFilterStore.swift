@@ -11,34 +11,23 @@ class BloomFilterStore: ObservableObject {
     }
     
     init() {
-        print("🌸 Initializing BloomFilterStore")
         self.bloomFilter = BloomFilter()
-        print("🌸 Created empty bloom filter")
         Task {
-            print("🌸 Starting async load from Firebase")
             await loadFromFirebase()
         }
-        print("🌸 BloomFilterStore initialization complete - async load started")
     }
     
     func add(_ element: String) {
-        print("🌸 Adding element to bloom filter: \(element)")
-        let wasSeen = bloomFilter.mightContain(element)
         bloomFilter.add(element)
-        let isSeen = bloomFilter.mightContain(element)
-        print("🌸 Element \(element) before:after seen status = \(wasSeen):\(isSeen)")
         saveToFirebase()
     }
     
     func mightContain(_ element: String) -> Bool {
         // If not loaded yet, conservatively return false to avoid showing duplicates
         guard isLoaded else {
-            print("🌸 Bloom filter not loaded yet, conservatively returning false for \(element)")
             return false
         }
-        let result = bloomFilter.mightContain(element)
-        print("🌸 Checking if bloom filter contains \(element): \(result)")
-        return result
+        return bloomFilter.mightContain(element)
     }
     
     @MainActor

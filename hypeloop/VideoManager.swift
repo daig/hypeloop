@@ -181,7 +181,22 @@ class VideoManager: ObservableObject {
         currentPlayer.pause()
         playerLooper?.disableLooping()
         playerLooper = nil
-        currentPlayer.replaceCurrentItem(with: nil)
+        currentPlayer.removeAllItems()
+        print("🎬 Queue cleared during cleanup")
+    }
+    
+    private func logQueueStatus() {
+        let items = currentPlayer.items()
+        print("🎬 Current queue status:")
+        print("  - Total items: \(items.count)")
+        for (index, item) in items.enumerated() {
+            if let urlAsset = item.asset as? AVURLAsset {
+                let url = urlAsset.url
+                if let playbackId = url.lastPathComponent.split(separator: ".").first {
+                    print("  - [\(index)] Video ID: \(playbackId)")
+                }
+            }
+        }
     }
     
     private func setupVideo(_ video: VideoItem) {
@@ -193,20 +208,26 @@ class VideoManager: ObservableObject {
         // Configure the player item
         playerItem.preferredForwardBufferDuration = 5  // Buffer 5 seconds ahead
         
-        // Replace the current item and set up observers
-        currentPlayer.replaceCurrentItem(with: playerItem)
+        // Clear existing queue and add the new item
+        currentPlayer.removeAllItems()
+        print("🎬 Queue cleared")
+        
+        currentPlayer.insert(playerItem, after: nil)
+        print("🎬 Added initial video to queue: \(video.id)")
+        logQueueStatus()
+        
         setupPlayerItem(playerItem)
         
         // Update current video
         currentVideo = video
         
-        // Start playing
-        currentPlayer.play()
-        
-        // Start preloading the next video
+        // Add next video to queue if available
         if let nextVideo = videoStack.dropFirst().first {
             preloadVideo(nextVideo)
         }
+        
+        // Start playing
+        currentPlayer.play()
     }
     
     private func preloadVideo(_ video: VideoItem) {
@@ -233,10 +254,17 @@ class VideoManager: ObservableObject {
                 item.preferredForwardBufferDuration = 5  // Buffer 5 seconds ahead
                 
                 await MainActor.run {
-                    // Only store the preloaded item if we're still preloading the same asset
+                    // Only add to queue if we're still preloading the same asset
                     if asset === preloadedAsset {
                         print("✅ Preload complete for video: \(video.id)")
                         self.preloadedItem = item
+                        
+                        // Add to queue
+                        if let currentLastItem = self.currentPlayer.items().last {
+                            self.currentPlayer.insert(item, after: currentLastItem)
+                            print("🎬 Added preloaded video to queue: \(video.id)")
+                            logQueueStatus()
+                        }
                     } else {
                         print("⚠️ Asset changed after item creation, discarding")
                     }
