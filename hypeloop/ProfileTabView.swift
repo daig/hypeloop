@@ -7,6 +7,4 @@ struct ProfileTabView: View {
     }
 }
 
-#Preview {
-    ProfileTabView()
-} 
+ 

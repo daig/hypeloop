@@ -388,6 +388,4 @@ struct SwipeableVideoPlayer: View {
     }
 }
 
-#Preview {
-    SwipeableVideoPlayer(videoManager: VideoManager())
-}
+

@@ -35,6 +35,4 @@ struct ReactionButton: View {
     }
 }
 
-#Preview {
-    HomeTabView(videoManager: VideoManager())
-} 
+ 

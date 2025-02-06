@@ -254,6 +254,4 @@ struct SafariView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }
 
-#Preview {
-    SavedVideosTabView(videoManager: VideoManager())
-} 
+ 

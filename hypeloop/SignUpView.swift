@@ -155,7 +155,3 @@ struct SignUpView: View {
         }
     }
 }
-
-#Preview {
-    SignUpView(isLoggedIn: .constant(false))
-}

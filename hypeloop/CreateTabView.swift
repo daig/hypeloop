@@ -360,7 +360,11 @@ struct CreateTabView: View {
             print("  Email: \(user?.email ?? "nil")")
             print("  Provider ID: \(user?.providerData.first?.providerID ?? "nil")")
             
-            // Get the user identifier (email or display name)
+            guard let uid = user?.uid else {
+                throw NSError(domain: "Upload", code: -1, userInfo: [NSLocalizedDescriptionKey: "No user ID available"])
+            }
+            
+            // Get the user identifier for display name generation
             let userIdentifier: String
             if user?.providerData.first?.providerID == "apple.com" {
                 userIdentifier = user?.email ?? user?.displayName ?? "Anonymous"
@@ -368,18 +372,18 @@ struct CreateTabView: View {
                 userIdentifier = user?.displayName ?? user?.email ?? "Anonymous"
             }
             
-            // Generate creator hash and display name
-            let creatorHash = CreatorNameGenerator.generateCreatorHash(userIdentifier)
-            let displayName = CreatorNameGenerator.generateDisplayName(from: creatorHash)
+            // Generate display name from hashed identifier
+            let identifierHash = CreatorNameGenerator.generateCreatorHash(userIdentifier)
+            let displayName = CreatorNameGenerator.generateDisplayName(from: identifierHash)
             
             print("📱 Debug - Creator info:")
+            print("  User ID: \(uid)")
             print("  Identifier: \(userIdentifier)")
-            print("  Hash: \(creatorHash)")
             print("  Display Name: \(displayName)")
             
             try await db.collection("videos").document(muxResponse.uploadId).setData([
                 "id": muxResponse.uploadId,
-                "creator": creatorHash,
+                "creator": uid,
                 "display_name": displayName,
                 "description": description,
                 "created_at": Int(Date().timeIntervalSince1970 * 1000), // Convert to milliseconds as integer
@@ -428,6 +432,4 @@ struct CreateTabView: View {
     }
 }
 
-#Preview {
-    CreateTabView()
-} 
+ 

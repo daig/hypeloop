@@ -59,10 +59,4 @@ struct NavigationButton: View {
     }
 }
 
-#Preview {
-    ZStack {
-        // Add a dark background to better see the navigation bar
-        Color.black.ignoresSafeArea()
-        NavigationBar(selectedTab: .constant(0), isLoggedIn: .constant(true))
-    }
-} 
+ 
