@@ -6,6 +6,8 @@ import AVFoundation
 import FirebaseFunctions
 import FirebaseAuth
 import FirebaseFirestore
+import ImageIO
+import UIKit
 
 struct MuxUploadResponse: Codable {
     let uploadUrl: String
@@ -47,6 +49,8 @@ struct CreateTabView: View {
     @State private var alertMessage = ""
     @State private var uploadComplete = false
     @State private var currentUploadId: String? = nil
+    @State private var gifData: Data? = nil
+    @State private var isLoadingGif = false
     
     // Shared instances
     private let functions = Functions.functions(region: "us-central1")
@@ -76,6 +80,44 @@ struct CreateTabView: View {
                             .foregroundColor(.green)
                             .font(.system(size: 50))
                             .padding(.top)
+                    }
+                    
+                    Button(action: {
+                        Task {
+                            await generateProfileGif()
+                        }
+                    }) {
+                        HStack {
+                            if isLoadingGif {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            }
+                            Text(isLoadingGif ? "Generating..." : "Generate Profile GIF")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                    }
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color(red: 0.2, green: 0.3, blue: 0.3),
+                                Color(red: 0.3, green: 0.4, blue: 0.4)
+                            ]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                    .padding(.horizontal)
+                    .disabled(isLoadingGif)
+                    
+                    if let data = gifData {
+                        AnimatedGIFView(gifData: data)
+                            .frame(width: 200, height: 200)
+                            .cornerRadius(12)
+                            .shadow(radius: 5)
+                            .padding()
                     }
                     
                     Spacer()
@@ -147,11 +189,8 @@ struct CreateTabView: View {
     }
     
     private var uploadButton: some View {
-        Button(action: {
-            Task {
-                await uploadVideo()
-            }
-        }) {
+         Button(action: { Task { await uploadVideo() } })
+         {
             if isUploading || isOptimizing {
                 ProgressView()
                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
@@ -379,6 +418,45 @@ struct CreateTabView: View {
             ])
         } catch {
             print("Error updating video status: \(error.localizedDescription)")
+        }
+    }
+    
+    // MARK: - Profile GIF Generation
+    
+    private func generateProfileGif() async {
+        isLoadingGif = true
+        
+        do {
+            let callable = functions.httpsCallable("generateProfileGif")
+            let data: [String: Any] = [
+                "width": 200,
+                "height": 200,
+                "frameCount": 30,
+                "delay": 100
+            ]
+            
+            let result = try await callable.call(data)
+            
+            guard let resultData = result.data as? [String: Any],
+                  let base64String = resultData["gif"] as? String,
+                  let newGifData = Data(base64Encoded: base64String) else {
+                throw NSError(domain: "GIFGeneration", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response format"])
+            }
+            
+            // Store the GIF data directly
+            await MainActor.run {
+                self.gifData = newGifData
+            }
+            
+        } catch {
+            await MainActor.run {
+                alertMessage = "Failed to generate GIF: \(error.localizedDescription)"
+                showAlert = true
+            }
+        }
+        
+        await MainActor.run {
+            isLoadingGif = false
         }
     }
 }
