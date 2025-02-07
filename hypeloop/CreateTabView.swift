@@ -52,67 +52,47 @@ struct CreateTabView: View {
     private let functions = Functions.functions(region: "us-central1")
     private let db = Firestore.firestore()
     
-    private var isAuthenticated: Bool {
-        Auth.auth().currentUser != nil
-    }
-    
     // MARK: - View Components
     
-    private var mainContent: some View {
-        VStack(spacing: 20) {
-            videoPickerButton
-                .onChange(of: selectedItem) { newItem in
-                    Task {
-                        await handleVideoSelection(newItem)
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                VStack(spacing: 20) {
+                    videoPickerButton
+                        .onChange(of: selectedItem) { newItem in
+                            Task {
+                                await handleVideoSelection(newItem)
+                            }
+                        }
+                    
+                    uploadProgressView
+                    descriptionField
+                    uploadButton
+                    
+                    if uploadComplete {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.system(size: 50))
+                            .padding(.top)
                     }
+                    
+                    Spacer()
                 }
-            
-            uploadProgressView
-            descriptionField
-            uploadButton
-            
-            if uploadComplete {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-                    .font(.system(size: 50))
-                    .padding(.top)
+                .padding(.top, 20)
             }
-            
-            Spacer()
-        }
-        .padding(.top, 20)
-    }
-    
-    private var loginPrompt: some View {
-        VStack(spacing: 20) {
-            Text("Sign In Required")
-                .font(.title2)
-                .foregroundColor(.white)
-            
-            Text("You need to be signed in to upload videos")
-                .foregroundColor(.gray)
-                .multilineTextAlignment(.center)
-            
-            NavigationLink(destination: LoginView(isLoggedIn: .constant(false))) {
-                Text("Sign In")
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(
-                        LinearGradient(
-                            gradient: Gradient(colors: [
-                                Color(red: 0.2, green: 0.2, blue: 0.3),
-                                Color(red: 0.3, green: 0.2, blue: 0.4)
-                            ]),
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
+            .navigationTitle("Create")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.black, for: .navigationBar)
+            .alert("Upload Status", isPresented: $showAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(alertMessage)
             }
-            .padding(.horizontal)
         }
-        .padding()
     }
     
     private var videoPickerButton: some View {
@@ -199,35 +179,9 @@ struct CreateTabView: View {
         .disabled(selectedVideoURL == nil || description.isEmpty || isUploading || isOptimizing)
     }
     
-    var body: some View {
-        NavigationView {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                
-                if isAuthenticated {
-                    mainContent
-                } else {
-                    loginPrompt
-                }
-            }
-            .navigationTitle("Create")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarBackground(Color.black, for: .navigationBar)
-            .alert("Upload Status", isPresented: $showAlert) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text(alertMessage)
-            }
-        }
-    }
-    
     // MARK: - Helper Functions
     
     private func handleVideoSelection(_ newItem: PhotosPickerItem?) async {
-        guard isAuthenticated else { return }
-        
         // Reset form and state when selecting new video
         selectedVideoURL = nil
         description = ""
@@ -296,10 +250,6 @@ struct CreateTabView: View {
     }
     
     private func getMuxUploadUrl(filename: String, fileSize: Int, contentType: String) async throws -> MuxUploadResponse {
-        guard isAuthenticated else {
-            throw NSError(domain: "MuxUpload", code: -1, userInfo: [NSLocalizedDescriptionKey: "You must be logged in to upload videos"])
-        }
-        
         let callable = functions.httpsCallable("getVideoUploadUrl")
         
         let data: [String: Any] = [
@@ -338,7 +288,6 @@ struct CreateTabView: View {
     }
     
     private func uploadVideo() async {
-        guard isAuthenticated else { return }
         guard let videoURL = selectedVideoURL else { return }
         
         isOptimizing = true
@@ -365,22 +314,20 @@ struct CreateTabView: View {
             currentUploadId = muxResponse.uploadId
             
             // Create initial Firestore document
-            let user = Auth.auth().currentUser
+            let user = Auth.auth().currentUser!
             print("📱 Debug - User info:")
-            print("  DisplayName: \(user?.displayName ?? "nil")")
-            print("  Email: \(user?.email ?? "nil")")
-            print("  Provider ID: \(user?.providerData.first?.providerID ?? "nil")")
+            print("  DisplayName: \(user.displayName ?? "nil")")
+            print("  Email: \(user.email ?? "nil")")
+            print("  Provider ID: \(user.providerData.first?.providerID ?? "nil")")
             
-            guard let uid = user?.uid else {
-                throw NSError(domain: "Upload", code: -1, userInfo: [NSLocalizedDescriptionKey: "No user ID available"])
-            }
+            let uid = user.uid
             
             // Get the user identifier for display name generation
             let userIdentifier: String
-            if user?.providerData.first?.providerID == "apple.com" {
-                userIdentifier = user?.email ?? user?.displayName ?? "Anonymous"
+            if user.providerData.first?.providerID == "apple.com" {
+                userIdentifier = user.email ?? user.displayName ?? "Anonymous"
             } else {
-                userIdentifier = user?.displayName ?? user?.email ?? "Anonymous"
+                userIdentifier = user.displayName ?? user.email ?? "Anonymous"
             }
             
             // Generate display name from hashed identifier

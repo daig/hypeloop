@@ -6,6 +6,19 @@ struct NavigationBar: View {
     @Binding var isLoggedIn: Bool
     @StateObject private var authService = AuthService.shared
     
+    private func logoutContextMenu() -> some View {
+        Button(role: .destructive, action: {
+            do {
+                try authService.signOut()
+                isLoggedIn = false
+            } catch {
+                print("Error signing out: \(error)")
+            }
+        }) {
+            Label("Logout", systemImage: "rectangle.portrait.and.arrow.right")
+        }
+    }
+    
     var body: some View {
         VStack {
             Spacer()
@@ -15,25 +28,22 @@ struct NavigationBar: View {
                     .onTapGesture { selectedTab = 0 }
                     .foregroundColor(selectedTab == 0 ? .white : .gray)
                     .contextMenu {
-                        Button(role: .destructive, action: {
-                            do {
-                                try authService.signOut()
-                                isLoggedIn = false
-                            } catch {
-                                print("Error signing out: \(error)")
-                            }
-                        }) {
-                            Label("Logout", systemImage: "rectangle.portrait.and.arrow.right")
-                        }
+                        logoutContextMenu()
                     }
                 
                 NavigationButton(iconName: "bookmark.fill", label: "Saved")
                     .onTapGesture { selectedTab = 1 }
                     .foregroundColor(selectedTab == 1 ? .white : .gray)
+                    .contextMenu {
+                        logoutContextMenu()
+                    }
                 
                 NavigationButton(iconName: "video.badge.plus", label: "Create")
                     .onTapGesture { selectedTab = 2 }
                     .foregroundColor(selectedTab == 2 ? .white : .gray)
+                    .contextMenu {
+                        logoutContextMenu()
+                    }
             }
             .padding(.vertical, 10)
             .padding(.bottom, 20)
