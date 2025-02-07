@@ -205,7 +205,7 @@ class VideoManager: ObservableObject {
         }
     }
     
-    func moveToNextVideo() {
+    func prepareNextVideo() {
         if let current = videoStack.first {
             markVideoAsSeen(current)
             videoStack.removeFirst()
@@ -223,7 +223,9 @@ class VideoManager: ObservableObject {
         if videoStack.count < 3 {
             loadVideos()
         }
-        
+    }
+    
+    func swapToNextVideo(autoPlay: Bool = true) {
         // Set up the new current video
         if let nextVideo = videoStack.first {
             // Swap players/loopers
@@ -241,11 +243,20 @@ class VideoManager: ObservableObject {
             
             self.currentVideo = nextVideo
             
+            if autoPlay {
+                currentPlayer.play()
+            }
+            
             // Preload what's after that
             if let followingVideo = videoStack.dropFirst().first {
                 preloadVideo(followingVideo)
             }
         }
+    }
+    
+    func moveToNextVideo() {
+        prepareNextVideo()
+        swapToNextVideo()
     }
     
     /// Unload/stop playback entirely when no videos remain.
@@ -284,9 +295,10 @@ class VideoManager: ObservableObject {
            let currentVideo = videoStack.first {
             let shareText = "\(urlAsset.url)\n\n\(currentVideo.description)"
             itemsToShare = [shareText]
+            prepareNextVideo()
+            swapToNextVideo(autoPlay: false)
             isShowingShareSheet = true
         }
-        moveToNextVideo()
     }
     
     // Swipe down => save
