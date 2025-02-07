@@ -75,7 +75,7 @@ struct SwipeableVideoPlayer: View {
                                 .padding(16)
                                 Spacer()
                             }
-                            .padding(.top, 50)
+                            .padding(.top, 70)
                             Spacer()
                         }
                         .zIndex(5) // Ensure it's above all other content
