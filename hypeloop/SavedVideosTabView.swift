@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import SafariServices
 import UniformTypeIdentifiers
+import FirebaseFirestore
 
 struct SavedVideosTabView: View {
     @ObservedObject var videoManager: VideoManager
@@ -11,6 +12,10 @@ struct SavedVideosTabView: View {
     @State private var downloadTasks: [String: URLSessionDownloadTask] = [:]
     @State private var presentingSafari = false
     @State private var selectedVideoURL: URL? = nil
+    @State private var creatorIcons: [String: Data] = [:]
+    @State private var showingUsernameForVideo: String? = nil
+    
+    private let db = Firestore.firestore()
     
     // Grid layout configuration
     private let columns = [
@@ -118,15 +123,54 @@ struct SavedVideosTabView: View {
             )
             
             // Text overlay
-            VStack(alignment: .leading, spacing: 4) {
-                Text("@\(video.display_name)")
-                    .font(.headline)
-                    .bold()
-                    .lineLimit(1)
-                
-                Text(video.description)
-                    .font(.subheadline)
-                    .lineLimit(2)
+            VStack(alignment: .leading, spacing: 12) {
+                // Creator info section
+                ZStack {
+                    HStack(alignment: .top, spacing: 8) {
+                        // Creator icon with floating username
+                        ZStack(alignment: .top) {
+                            if let iconData = creatorIcons[video.creator] {
+                                AnimatedGIFView(gifData: iconData)
+                                    .frame(width: 32, height: 32)
+                                    .clipShape(Circle())
+                                    .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1))
+                            } else {
+                                Circle()
+                                    .fill(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
+                                    .frame(width: 32, height: 32)
+                                    .onAppear {
+                                        Task {
+                                            await loadCreatorIcon(for: video.creator)
+                                        }
+                                    }
+                            }
+                            
+                            if showingUsernameForVideo == video.id {
+                                Text("@\(video.display_name)")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(
+                                        Capsule()
+                                            .fill(Color.black.opacity(0.7))
+                                            .overlay(
+                                                Capsule()
+                                                    .strokeBorder(Color.white.opacity(0.2), lineWidth: 0.5)
+                                            )
+                                    )
+                                    .offset(y: -24)  // Move up by a fixed amount
+                                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+                            }
+                        }
+                        
+                        // Description
+                        Text(video.description)
+                            .font(.subheadline)
+                            .lineLimit(2)
+                    }
+                }
                 
                 // Download button
                 if let progress = downloadProgress[video.id], progress < 1.0 {
@@ -138,6 +182,12 @@ struct SavedVideosTabView: View {
             .padding(12)
         }
         .frame(width: (UIScreen.main.bounds.width - 36) / 2, height: 280)
+        .contentShape(Rectangle())  // Makes the entire card tappable
+        .onTapGesture {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                showingUsernameForVideo = showingUsernameForVideo == video.id ? nil : video.id
+            }
+        }
         .contextMenu {
             Button(role: .destructive) {
                 if let index = videoManager.savedVideos.firstIndex(where: { $0.id == video.id }) {
@@ -146,6 +196,23 @@ struct SavedVideosTabView: View {
             } label: {
                 Label("Delete", systemImage: "trash")
             }
+        }
+    }
+    
+    private func loadCreatorIcon(for creatorId: String) async {
+        guard creatorIcons[creatorId] == nil else { return }
+        
+        do {
+            let docSnapshot = try await db.collection("user_icons").document(creatorId).getDocument()
+            
+            if let iconData = docSnapshot.data()?["icon_data"] as? String,
+               let data = Data(base64Encoded: iconData) {
+                await MainActor.run {
+                    creatorIcons[creatorId] = data
+                }
+            }
+        } catch {
+            print("Failed to load creator icon: \(error.localizedDescription)")
         }
     }
     

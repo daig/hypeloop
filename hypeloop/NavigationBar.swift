@@ -24,21 +24,21 @@ struct NavigationBar: View {
             Spacer()
             HStack(spacing: 60) {
                 // Home tab with long-press menu
-                NavigationButton(iconName: "house.fill", label: "Home")
+                NavigationButton(iconName: "house.fill")
                     .onTapGesture { selectedTab = 0 }
                     .foregroundColor(selectedTab == 0 ? .white : .gray)
                     .contextMenu {
                         logoutContextMenu()
                     }
                 
-                NavigationButton(iconName: "person.circle.fill", label: "Profile")
+                NavigationButton(iconName: "person.circle.fill")
                     .onTapGesture { selectedTab = 1 }
                     .foregroundColor(selectedTab == 1 ? .white : .gray)
                     .contextMenu {
                         logoutContextMenu()
                     }
                 
-                NavigationButton(iconName: "video.badge.plus", label: "Create")
+                NavigationButton(iconName: "video.badge.plus")
                     .onTapGesture { selectedTab = 2 }
                     .foregroundColor(selectedTab == 2 ? .white : .gray)
                     .contextMenu {
@@ -67,16 +67,11 @@ struct NavigationBar: View {
 
 struct NavigationButton: View {
     let iconName: String
-    let label: String
     
     var body: some View {
-        VStack(spacing: 4) {
-            Image(systemName: iconName)
-                .imageScale(.large)
-            Text(label)
-                .font(.caption)
-        }
-        .foregroundColor(.white)
+        Image(systemName: iconName)
+            .imageScale(.large)
+            .font(.system(size: 24)) // Make icons slightly larger since they're alone
     }
 }
 
