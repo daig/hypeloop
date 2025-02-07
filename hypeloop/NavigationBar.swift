@@ -31,7 +31,7 @@ struct NavigationBar: View {
                         logoutContextMenu()
                     }
                 
-                NavigationButton(iconName: "bookmark.fill", label: "Saved")
+                NavigationButton(iconName: "person.circle.fill", label: "Profile")
                     .onTapGesture { selectedTab = 1 }
                     .foregroundColor(selectedTab == 1 ? .white : .gray)
                     .contextMenu {

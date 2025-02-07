@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct SavedVideosTabView: View {
     @ObservedObject var videoManager: VideoManager
+    @StateObject private var authService = AuthService.shared
     @State private var copiedVideoId: String? = nil
     @State private var downloadProgress: [String: Double] = [:]
     @State private var downloadTasks: [String: URLSessionDownloadTask] = [:]
@@ -22,16 +23,55 @@ struct SavedVideosTabView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 
-                Group {
-                    if videoManager.savedVideos.isEmpty {
-                        Text("No saved videos yet")
-                            .foregroundColor(.gray)
-                    } else {
-                        savedVideosGrid
+                VStack(spacing: 0) {
+                    // User Profile Section
+                    VStack(spacing: 16) {
+                        // User Icon
+                        if let iconData = authService.userIconData {
+                            AnimatedGIFView(gifData: iconData)
+                                .frame(width: 100, height: 100)
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1))
+                                .overlay(
+                                    Circle()
+                                        .strokeBorder(
+                                            LinearGradient(
+                                                colors: [
+                                                    .white.opacity(0.3),
+                                                    .white.opacity(0.1)
+                                                ],
+                                                startPoint: .top,
+                                                endPoint: .bottom
+                                            )
+                                        )
+                                )
+                        } else {
+                            Circle()
+                                .fill(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
+                                .frame(width: 100, height: 100)
+                        }
+                        
+                        // Display Name
+                        Text("@\(authService.displayName)")
+                            .font(.title2)
+                            .bold()
+                            .foregroundColor(.white)
+                    }
+                    .padding(.vertical, 24)
+                    
+                    // Saved Videos Section
+                    Group {
+                        if videoManager.savedVideos.isEmpty {
+                            Text("No saved videos yet")
+                                .foregroundColor(.gray)
+                                .padding(.top, 40)
+                        } else {
+                            savedVideosGrid
+                        }
                     }
                 }
             }
-            .navigationTitle("Saved Videos")
+            .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)

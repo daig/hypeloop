@@ -9,6 +9,7 @@ class AuthService: ObservableObject {
     @Published var user: User?
     @Published var isAuthenticated = false
     @Published var userIconData: Data?
+    @Published var displayName: String = "Anonymous"
     private var currentNonce: String?
     
     static let shared = AuthService()
@@ -27,12 +28,40 @@ class AuthService: ObservableObject {
                 self?.isAuthenticated = user != nil
                 if user != nil {
                     Task {
-                        await self?.fetchUserIcon()
+                        await self?.updateUserInfo()
                     }
                 } else {
                     self?.userIconData = nil
+                    self?.displayName = "Anonymous"
                 }
             }
+        }
+    }
+    
+    // MARK: - User Info Methods
+    
+    private func updateUserInfo() async {
+        await fetchUserIcon()
+        updateDisplayName()
+    }
+    
+    private func updateDisplayName() {
+        guard let user = user else { return }
+        
+        // Get the user identifier for display name generation
+        let userIdentifier: String
+        if user.providerData.first?.providerID == "apple.com" {
+            userIdentifier = user.email ?? user.displayName ?? "Anonymous"
+        } else {
+            userIdentifier = user.displayName ?? user.email ?? "Anonymous"
+        }
+        
+        // Generate display name from hashed identifier
+        let identifierHash = CreatorNameGenerator.generateCreatorHash(userIdentifier)
+        let newDisplayName = CreatorNameGenerator.generateDisplayName(from: identifierHash)
+        
+        DispatchQueue.main.async {
+            self.displayName = newDisplayName
         }
     }
     
