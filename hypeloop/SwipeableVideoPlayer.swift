@@ -74,6 +74,8 @@ struct SwipeableVideoPlayer: View {
     @State private var paperAirplaneOffset: CGFloat = 0
     @State private var saveIconOffset: CGFloat = 0
     @State private var isRefreshing = false
+    @State private var showPlayIndicator = false
+    @State private var showPauseIndicator = false
     
     // Constants
     private let swipeThreshold: CGFloat = 100
@@ -126,6 +128,26 @@ struct SwipeableVideoPlayer: View {
                     .background(Color.black)
                 } else {
                     ZStack {
+                        // Play indicator overlay
+                        Image(systemName: "play.circle.fill")
+                            .resizable()
+                            .frame(width: 80, height: 80)
+                            .foregroundColor(.white.opacity(0.8))
+                            .opacity(showPlayIndicator ? 1 : 0)
+                            .scaleEffect(showPlayIndicator ? 1 : 0.5)
+                            .animation(.spring(response: 0.3), value: showPlayIndicator)
+                            .zIndex(4)
+                            
+                        // Pause indicator overlay
+                        Image(systemName: "pause.circle.fill")
+                            .resizable()
+                            .frame(width: 80, height: 80)
+                            .foregroundColor(.white.opacity(0.8))
+                            .opacity(showPauseIndicator ? 1 : 0)
+                            .scaleEffect(showPauseIndicator ? 1 : 0.5)
+                            .animation(.spring(response: 0.3), value: showPauseIndicator)
+                            .zIndex(4)
+                        
                         // Bottom card: next video
                         if videoManager.videoStack.count > 1 {
                             ZStack {
@@ -202,6 +224,43 @@ struct SwipeableVideoPlayer: View {
                                 }
                                 .onEnded(onDragEnded)
                         )
+                        .onTapGesture {
+                            let isPlaying = videoManager.currentPlayer.timeControlStatus == .playing
+                            
+                            // Immediately hide any currently showing indicators
+                            withAnimation(.none) {
+                                showPlayIndicator = false
+                                showPauseIndicator = false
+                            }
+                            
+                            // Show the appropriate indicator
+                            if isPlaying {
+                                withAnimation {
+                                    showPauseIndicator = true
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                                    withAnimation {
+                                        showPauseIndicator = false
+                                    }
+                                }
+                            } else {
+                                withAnimation {
+                                    showPlayIndicator = true
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                                    withAnimation {
+                                        showPlayIndicator = false
+                                    }
+                                }
+                            }
+                            
+                            // Toggle play/pause state
+                            if isPlaying {
+                                videoManager.currentPlayer.pause()
+                            } else {
+                                videoManager.currentPlayer.play()
+                            }
+                        }
                         .animation(
                             .interactiveSpring(response: 0.3, dampingFraction: 0.6),
                             value: dragOffset
