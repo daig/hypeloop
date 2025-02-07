@@ -11,5 +11,10 @@ service cloud.firestore {
     match /bloom_filters/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+
+    match /user_icons/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
   }
 } 

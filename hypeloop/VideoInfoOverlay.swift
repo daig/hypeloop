@@ -1,5 +1,6 @@
 import SwiftUI
 import FirebaseFunctions
+import FirebaseFirestore
 
 struct VideoInfoOverlay: View {
     let video: VideoItem
@@ -7,7 +8,7 @@ struct VideoInfoOverlay: View {
     @State private var isLoadingGif = false
     @State private var showDisplayName = false
     
-    private let functions = Functions.functions(region: "us-central1")
+    private let db = Firestore.firestore()
     
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -28,36 +29,22 @@ struct VideoInfoOverlay: View {
                                         ],
                                         startPoint: .top,
                                         endPoint: .bottom
-                                    ),
-                                    lineWidth: 2
+                                    )
                                 )
                         )
-                        .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
                 } else {
                     Circle()
-                        .fill(Color.gray.opacity(0.3))
+                        .fill(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
                         .frame(width: 44, height: 44)
                         .overlay(
-                            Circle()
-                                .strokeBorder(
-                                    LinearGradient(
-                                        colors: [
-                                            .white.opacity(0.3),
-                                            .white.opacity(0.1)
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    ),
-                                    lineWidth: 2
-                                )
-                        )
-                        .overlay {
-                            if isLoadingGif {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                    .scaleEffect(0.7)
+                            ZStack {
+                                if isLoadingGif {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .scaleEffect(0.7)
+                                }
                             }
-                        }
+                        )
                 }
             }
             
@@ -90,38 +77,28 @@ struct VideoInfoOverlay: View {
             }
         }
         .task {
-            await loadProfileGif()
+            await loadCreatorIcon()
         }
     }
     
-    private func loadProfileGif() async {
+    private func loadCreatorIcon() async {
         guard gifData == nil && !isLoadingGif else { return }
         
         isLoadingGif = true
         defer { isLoadingGif = false }
         
         do {
-            let callable = functions.httpsCallable("generateProfileGif")
-            let data: [String: Any] = [
-                "width": 80,  // Double the display size for retina
-                "height": 80,
-                "frameCount": 30,
-                "delay": 100
-            ]
+            // Fetch creator's icon from Firestore
+            let docSnapshot = try await db.collection("user_icons").document(video.creator).getDocument()
             
-            let result = try await callable.call(data)
-            
-            guard let resultData = result.data as? [String: Any],
-                  let base64String = resultData["gif"] as? String,
-                  let newGifData = Data(base64Encoded: base64String) else {
-                return
-            }
-            
-            await MainActor.run {
-                self.gifData = newGifData
+            if let iconData = docSnapshot.data()?["icon_data"] as? String,
+               let data = Data(base64Encoded: iconData) {
+                await MainActor.run {
+                    self.gifData = data
+                }
             }
         } catch {
-            print("Failed to load profile GIF: \(error.localizedDescription)")
+            print("Failed to load creator icon: \(error.localizedDescription)")
         }
     }
 } 

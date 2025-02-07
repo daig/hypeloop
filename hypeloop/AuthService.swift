@@ -2,13 +2,18 @@ import Foundation
 import FirebaseAuth
 import AuthenticationServices
 import CryptoKit
+import FirebaseFunctions
+import FirebaseFirestore
 
 class AuthService: ObservableObject {
     @Published var user: User?
     @Published var isAuthenticated = false
+    @Published var userIconData: Data?
     private var currentNonce: String?
     
     static let shared = AuthService()
+    private let functions = Functions.functions(region: "us-central1")
+    private let db = Firestore.firestore()
     
     private init() {
         // Set initial state based on current Firebase Auth state
@@ -20,7 +25,71 @@ class AuthService: ObservableObject {
             DispatchQueue.main.async {
                 self?.user = user
                 self?.isAuthenticated = user != nil
+                if user != nil {
+                    Task {
+                        await self?.fetchUserIcon()
+                    }
+                } else {
+                    self?.userIconData = nil
+                }
             }
+        }
+    }
+    
+    // MARK: - User Icon Methods
+    
+    private func fetchUserIcon() async {
+        guard let uid = user?.uid else { return }
+        
+        do {
+            let docSnapshot = try await db.collection("user_icons").document(uid).getDocument()
+            if let iconData = docSnapshot.data()?["icon_data"] as? String,
+               let data = Data(base64Encoded: iconData) {
+                await MainActor.run {
+                    self.userIconData = data
+                }
+            } else {
+                // No icon found, generate one
+                await generateAndStoreUserIcon()
+            }
+        } catch {
+            print("Error fetching user icon: \(error.localizedDescription)")
+            // If there's an error fetching, try to generate a new one
+            await generateAndStoreUserIcon()
+        }
+    }
+    
+    private func generateAndStoreUserIcon() async {
+        guard let uid = user?.uid else { return }
+        
+        do {
+            let callable = functions.httpsCallable("generateProfileGif")
+            let data: [String: Any] = [
+                "width": 200,
+                "height": 200,
+                "frameCount": 30,
+                "delay": 100
+            ]
+            
+            let result = try await callable.call(data)
+            
+            guard let resultData = result.data as? [String: Any],
+                  let base64String = resultData["gif"] as? String,
+                  let newGifData = Data(base64Encoded: base64String) else {
+                return
+            }
+            
+            // Store in Firestore
+            try await db.collection("user_icons").document(uid).setData([
+                "icon_data": base64String,
+                "updated_at": Date().timeIntervalSince1970
+            ])
+            
+            await MainActor.run {
+                self.userIconData = newGifData
+            }
+        } catch {
+            print("Error generating user icon: \(error.localizedDescription)")
         }
     }
     
@@ -39,6 +108,7 @@ class AuthService: ObservableObject {
         DispatchQueue.main.async {
             self.user = nil
             self.isAuthenticated = false
+            self.userIconData = nil
         }
     }
     
