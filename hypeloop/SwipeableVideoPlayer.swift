@@ -187,9 +187,18 @@ struct SwipeableVideoPlayer: View {
             // Video Player
             AutoplayVideoPlayer(player: videoManager.currentPlayer)
                 .clipShape(RoundedRectangle(cornerRadius: 20))
-                .onTapGesture {
-                    handleVideoTap()
-                }
+                .gesture(
+                    SimultaneousGesture(
+                        TapGesture()
+                            .onEnded { _ in
+                                handleVideoTap()
+                            },
+                        TapGesture(count: 2)
+                            .onEnded { _ in
+                                handleVideoDoubleTap()
+                            }
+                    )
+                )
             
             // Overlay: author and description
             VStack {
@@ -241,5 +250,21 @@ struct SwipeableVideoPlayer: View {
         } else {
             videoManager.currentPlayer.play()
         }
+    }
+
+    private func handleVideoDoubleTap() {
+        withAnimation(.none) {
+            showPlayIndicator = false
+            showPauseIndicator = false
+            showRestartIndicator = false
+        }
+        
+        withAnimation { showRestartIndicator = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            withAnimation { showRestartIndicator = false }
+        }
+        
+        videoManager.currentPlayer.seek(to: .zero)
+        videoManager.currentPlayer.play()
     }
 }
