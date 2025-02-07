@@ -207,6 +207,7 @@ struct SwipeableVideoPlayer: View {
             // Video Player
             AutoplayVideoPlayer(player: videoManager.currentPlayer)
                 .clipShape(RoundedRectangle(cornerRadius: 20))
+                .padding(.top, 60)
                 .gesture(
                     SimultaneousGesture(
                         TapGesture()
