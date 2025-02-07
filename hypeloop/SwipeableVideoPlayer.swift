@@ -184,9 +184,12 @@ struct SwipeableVideoPlayer: View {
             RoundedRectangle(cornerRadius: 20)
                 .fill(Color.black.opacity(0))
             
+            // Video Player
             AutoplayVideoPlayer(player: videoManager.currentPlayer)
                 .clipShape(RoundedRectangle(cornerRadius: 20))
-                .padding(.top, 60)
+                .onTapGesture {
+                    handleVideoTap()
+                }
             
             // Overlay: author and description
             VStack {
@@ -199,74 +202,44 @@ struct SwipeableVideoPlayer: View {
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                     
-                    if let currentVideo = videoManager.videoStack.first {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("@\(currentVideo.display_name)")
-                                .font(.headline)
-                                .bold()
-                            Text(currentVideo.description)
-                                .font(.subheadline)
-                                .lineLimit(2)
-                        }
-                        .foregroundColor(.white)
-                        .padding()
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.bottom, 80)
+                    if let currentVideo = videoManager.currentVideo {
+                        VideoInfoOverlay(video: currentVideo)
+                            .padding(.bottom, 80)
                     }
                 }
                 .frame(height: geometry.size.height / 2)
             }
         }
-        .frame(
-            width: geometry.size.width - cardSpacing * 2,
-            height: geometry.size.height - cardSpacing * 2
-        )
-        .simultaneousGesture(
-            TapGesture(count: 2)
-                .onEnded {
-                    withAnimation(.none) {
-                        showPlayIndicator = false
-                        showPauseIndicator = false
-                        showRestartIndicator = false
-                    }
-                    withAnimation {
-                        showRestartIndicator = true
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                        withAnimation {
-                            showRestartIndicator = false
-                        }
-                    }
-                    videoManager.currentPlayer.seek(to: .zero)
-                    videoManager.currentPlayer.play()
-                }
-        )
-        .onTapGesture {
-            let isPlaying = videoManager.currentPlayer.timeControlStatus == .playing
-            
-            withAnimation(.none) {
-                showPlayIndicator = false
-                showPauseIndicator = false
-                showRestartIndicator = false
+        .frame(width: geometry.size.width - cardSpacing * 2, height: geometry.size.height - cardSpacing * 2)
+        .cornerRadius(20)
+        .shadow(radius: 5)
+    }
+
+    private func handleVideoTap() {
+        let isPlaying = videoManager.currentPlayer.timeControlStatus == .playing
+        
+        withAnimation(.none) {
+            showPlayIndicator = false
+            showPauseIndicator = false
+            showRestartIndicator = false
+        }
+        
+        if isPlaying {
+            withAnimation { showPauseIndicator = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                withAnimation { showPauseIndicator = false }
             }
-            
-            if isPlaying {
-                withAnimation { showPauseIndicator = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                    withAnimation { showPauseIndicator = false }
-                }
-            } else {
-                withAnimation { showPlayIndicator = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                    withAnimation { showPlayIndicator = false }
-                }
+        } else {
+            withAnimation { showPlayIndicator = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                withAnimation { showPlayIndicator = false }
             }
-            
-            if isPlaying {
-                videoManager.currentPlayer.pause()
-            } else {
-                videoManager.currentPlayer.play()
-            }
+        }
+        
+        if isPlaying {
+            videoManager.currentPlayer.pause()
+        } else {
+            videoManager.currentPlayer.play()
         }
     }
 }
