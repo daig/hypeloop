@@ -76,6 +76,7 @@ struct SwipeableVideoPlayer: View {
     @State private var isRefreshing = false
     @State private var showPlayIndicator = false
     @State private var showPauseIndicator = false
+    @State private var showRestartIndicator = false
     
     // Constants
     private let swipeThreshold: CGFloat = 100
@@ -146,6 +147,16 @@ struct SwipeableVideoPlayer: View {
                             .opacity(showPauseIndicator ? 1 : 0)
                             .scaleEffect(showPauseIndicator ? 1 : 0.5)
                             .animation(.spring(response: 0.3), value: showPauseIndicator)
+                            .zIndex(4)
+                            
+                        // Restart indicator overlay
+                        Image(systemName: "arrow.counterclockwise.circle.fill")
+                            .resizable()
+                            .frame(width: 80, height: 80)
+                            .foregroundColor(.white.opacity(0.8))
+                            .opacity(showRestartIndicator ? 1 : 0)
+                            .scaleEffect(showRestartIndicator ? 1 : 0.5)
+                            .animation(.spring(response: 0.3), value: showRestartIndicator)
                             .zIndex(4)
                         
                         // Bottom card: next video
@@ -224,6 +235,31 @@ struct SwipeableVideoPlayer: View {
                                 }
                                 .onEnded(onDragEnded)
                         )
+                        .simultaneousGesture(
+                            TapGesture(count: 2)
+                                .onEnded { _ in
+                                    // Immediately hide any currently showing indicators
+                                    withAnimation(.none) {
+                                        showPlayIndicator = false
+                                        showPauseIndicator = false
+                                        showRestartIndicator = false
+                                    }
+                                    
+                                    // Show restart indicator
+                                    withAnimation {
+                                        showRestartIndicator = true
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                                        withAnimation {
+                                            showRestartIndicator = false
+                                        }
+                                    }
+                                    
+                                    // Restart video
+                                    videoManager.currentPlayer.seek(to: .zero)
+                                    videoManager.currentPlayer.play()
+                                }
+                        )
                         .onTapGesture {
                             let isPlaying = videoManager.currentPlayer.timeControlStatus == .playing
                             
@@ -231,6 +267,7 @@ struct SwipeableVideoPlayer: View {
                             withAnimation(.none) {
                                 showPlayIndicator = false
                                 showPauseIndicator = false
+                                showRestartIndicator = false
                             }
                             
                             // Show the appropriate indicator
