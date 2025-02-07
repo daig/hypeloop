@@ -3,387 +3,269 @@ import AVKit
 import UIKit
 
 struct SwipeableVideoPlayer: View {
+    // MARK: - Observed & State Properties
     @ObservedObject var videoManager: VideoManager
-    @GestureState private var dragOffset: CGSize = .zero
-    @State private var offset: CGSize = .zero
-    @State private var showThumbsUp = false
-    @State private var showThumbsDown = false
-    @State private var showPaperAirplane = false
-    @State private var showSaveIcon = false
-    @State private var paperAirplaneOffset: CGFloat = 0
-    @State private var saveIconOffset: CGFloat = 0
-    @State private var isRefreshing = false
+    
+    // Play/Pause/Restart indicator states
     @State private var showPlayIndicator = false
     @State private var showPauseIndicator = false
     @State private var showRestartIndicator = false
     
-    // Constants
-    private let swipeThreshold: CGFloat = 100
-    private let maxRotation: Double = 35
+    // Refresh state for "caught up" view
+    @State private var isRefreshing = false
+
+    // MARK: - Constants
     private let cardSpacing: CGFloat = 15
     
+    private var swipeConfiguration: SwipeConfiguration {
+        SwipeConfiguration(
+            leftAction: SwipeAction(
+                icon: "hand.thumbsdown.fill",
+                color: .red,
+                rotationDegrees: 0,
+                action: videoManager.handleLeftSwipe
+            ),
+            rightAction: SwipeAction(
+                icon: "hand.thumbsup.fill",
+                color: .green,
+                rotationDegrees: 0,
+                action: videoManager.handleRightSwipe
+            ),
+            upAction: SwipeAction(
+                icon: "paperplane.fill",
+                color: .blue,
+                rotationDegrees: -45,
+                action: videoManager.handleUpSwipe
+            ),
+            downAction: SwipeAction(
+                icon: "square.and.arrow.down.fill",
+                color: .purple,
+                rotationDegrees: 0,
+                action: videoManager.handleDownSwipe
+            )
+        )
+    }
+
+    // MARK: - Body
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // If empty, show "caught up" message
                 if videoManager.videoStack.isEmpty {
-                    VStack(spacing: 16) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 60))
-                            .foregroundColor(.white)
-                            .rotationEffect(.degrees(isRefreshing ? 360 : 0))
-                            .animation(
-                                isRefreshing
-                                ? .linear(duration: 1).repeatForever(autoreverses: false)
-                                : .default,
-                                value: isRefreshing
-                            )
-                        
-                        Text("You're all caught up!")
-                            .foregroundColor(.white)
-                            .font(.headline)
-                        
-                        Text("Check back later for new videos")
-                            .foregroundColor(.gray)
-                            .font(.subheadline)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                        
-                        Button(action: {
-                            isRefreshing = true
-                            Task {
-                                await videoManager.loadVideos(initial: true)
-                                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
-                                await MainActor.run {
-                                    isRefreshing = false
-                                }
-                            }
-                        }) {
-                            Text("Tap to refresh")
-                                .foregroundColor(.gray)
-                                .font(.subheadline)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.black)
+                    caughtUpView(geometry: geometry)
                 } else {
                     ZStack {
-                        // Play indicator overlay
-                        Image(systemName: "play.circle.fill")
-                            .resizable()
-                            .frame(width: 80, height: 80)
-                            .foregroundColor(.white.opacity(0.8))
-                            .opacity(showPlayIndicator ? 1 : 0)
-                            .scaleEffect(showPlayIndicator ? 1 : 0.5)
-                            .animation(.spring(response: 0.3), value: showPlayIndicator)
-                            .zIndex(4)
-                            
-                        // Pause indicator overlay
-                        Image(systemName: "pause.circle.fill")
-                            .resizable()
-                            .frame(width: 80, height: 80)
-                            .foregroundColor(.white.opacity(0.8))
-                            .opacity(showPauseIndicator ? 1 : 0)
-                            .scaleEffect(showPauseIndicator ? 1 : 0.5)
-                            .animation(.spring(response: 0.3), value: showPauseIndicator)
-                            .zIndex(4)
-                            
-                        // Restart indicator overlay
-                        Image(systemName: "arrow.counterclockwise.circle.fill")
-                            .resizable()
-                            .frame(width: 80, height: 80)
-                            .foregroundColor(.white.opacity(0.8))
-                            .opacity(showRestartIndicator ? 1 : 0)
-                            .scaleEffect(showRestartIndicator ? 1 : 0.5)
-                            .animation(.spring(response: 0.3), value: showRestartIndicator)
-                            .zIndex(4)
-                        
-                        // Bottom card: next video
-                        if videoManager.videoStack.count > 1 {
-                            ZStack {
-                                AutoplayVideoPlayer(player: videoManager.nextPlayer)
-                                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                                    .padding(.top, 60)
-                                // Overlay gradient
-                                VStack {
-                                    Spacer()
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
-                                        startPoint: .center,
-                                        endPoint: .bottom
-                                    )
-                                    .frame(height: geometry.size.height / 2)
-                                }
-                            }
-                            .frame(
-                                width: geometry.size.width - cardSpacing * 2,
-                                height: geometry.size.height - cardSpacing * 2
-                            )
-                            .zIndex(1)
-                        }
-                        
-                        // Top card: current video
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 20)
-                                .fill(Color.black.opacity(0))
-                            
-                            AutoplayVideoPlayer(player: videoManager.currentPlayer)
-                                .clipShape(RoundedRectangle(cornerRadius: 20))
-                                .padding(.top, 60)
-                            
-                            // Overlay with author + description
-                            VStack {
-                                Spacer()
-                                ZStack(alignment: .bottom) {
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
-                                        startPoint: .center,
-                                        endPoint: .bottom
-                                    )
-                                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                                    
-                                    if let currentVideo = videoManager.videoStack.first {
-                                        VStack(alignment: .leading, spacing: 8) {
-                                            Text("@\(currentVideo.display_name)")
-                                                .font(.headline)
-                                                .bold()
-                                            Text(currentVideo.description)
-                                                .font(.subheadline)
-                                                .lineLimit(2)
-                                        }
-                                        .foregroundColor(.white)
-                                        .padding()
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.bottom, 80)
-                                    }
-                                }
-                                .frame(height: geometry.size.height / 2)
-                            }
-                        }
-                        .frame(
-                            width: geometry.size.width - cardSpacing * 2,
-                            height: geometry.size.height - cardSpacing * 2
-                        )
-                        .offset(x: offset.width + dragOffset.width,
-                                y: offset.height + dragOffset.height)
-                        .rotationEffect(.degrees(rotationAngle))
-                        .gesture(
-                            DragGesture()
-                                .updating($dragOffset) { value, state, _ in
-                                    state = value.translation
-                                }
-                                .onEnded(onDragEnded)
-                        )
-                        .simultaneousGesture(
-                            TapGesture(count: 2)
-                                .onEnded { _ in
-                                    // Immediately hide any currently showing indicators
-                                    withAnimation(.none) {
-                                        showPlayIndicator = false
-                                        showPauseIndicator = false
-                                        showRestartIndicator = false
-                                    }
-                                    
-                                    // Show restart indicator
-                                    withAnimation {
-                                        showRestartIndicator = true
-                                    }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                                        withAnimation {
-                                            showRestartIndicator = false
-                                        }
-                                    }
-                                    
-                                    // Restart video
-                                    videoManager.currentPlayer.seek(to: .zero)
-                                    videoManager.currentPlayer.play()
-                                }
-                        )
-                        .onTapGesture {
-                            let isPlaying = videoManager.currentPlayer.timeControlStatus == .playing
-                            
-                            // Immediately hide any currently showing indicators
-                            withAnimation(.none) {
-                                showPlayIndicator = false
-                                showPauseIndicator = false
-                                showRestartIndicator = false
-                            }
-                            
-                            // Show the appropriate indicator
-                            if isPlaying {
-                                withAnimation {
-                                    showPauseIndicator = true
-                                }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                                    withAnimation {
-                                        showPauseIndicator = false
-                                    }
-                                }
-                            } else {
-                                withAnimation {
-                                    showPlayIndicator = true
-                                }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                                    withAnimation {
-                                        showPlayIndicator = false
-                                    }
-                                }
-                            }
-                            
-                            // Toggle play/pause state
-                            if isPlaying {
-                                videoManager.currentPlayer.pause()
-                            } else {
-                                videoManager.currentPlayer.play()
-                            }
-                        }
-                        .animation(
-                            .interactiveSpring(response: 0.3, dampingFraction: 0.6),
-                            value: dragOffset
-                        )
-                        .zIndex(2)
+                        playPauseRestartIndicators
+                        bottomCard(geometry: geometry)
+                        SwipeableCard(configuration: swipeConfiguration) {
+                            topCardContent(geometry: geometry)
+                        }.zIndex(2)
                     }
-                    
-                    // Overlays for swipe feedback
-                    Image(systemName: "paperplane.fill")
-                        .resizable()
-                        .frame(width: 100, height: 100)
-                        .foregroundColor(.blue)
-                        .opacity(showPaperAirplane ? 0.8 : 0)
-                        .scaleEffect(showPaperAirplane ? 1 : 0.5)
-                        .rotationEffect(.degrees(-45))
-                        .offset(y: paperAirplaneOffset)
-                        .animation(.spring(response: 0.3).speed(0.7), value: showPaperAirplane)
-                        .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: paperAirplaneOffset)
-                        .zIndex(3)
-                    
-                    Image(systemName: "hand.thumbsup.fill")
-                        .resizable()
-                        .frame(width: 100, height: 100)
-                        .foregroundColor(.green)
-                        .opacity(showThumbsUp ? 0.8 : 0)
-                        .scaleEffect(showThumbsUp ? 1 : 0.5)
-                        .animation(.spring(response: 0.3), value: showThumbsUp)
-                        .zIndex(3)
-                    
-                    Image(systemName: "hand.thumbsdown.fill")
-                        .resizable()
-                        .frame(width: 100, height: 100)
-                        .foregroundColor(.red)
-                        .opacity(showThumbsDown ? 0.8 : 0)
-                        .scaleEffect(showThumbsDown ? 1 : 0.5)
-                        .animation(.spring(response: 0.3), value: showThumbsDown)
-                        .zIndex(3)
-                    
-                    Image(systemName: "square.and.arrow.down.fill")
-                        .resizable()
-                        .frame(width: 100, height: 100)
-                        .foregroundColor(.purple)
-                        .opacity(showSaveIcon ? 0.8 : 0)
-                        .scaleEffect(showSaveIcon ? 1 : 0.5)
-                        .offset(y: saveIconOffset)
-                        .animation(.spring(response: 0.3).speed(0.7), value: showSaveIcon)
-                        .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: saveIconOffset)
-                        .zIndex(3)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // Only auto-play if there's actually a video
             .onAppear {
-                if !videoManager.videoStack.isEmpty {
-                    videoManager.currentPlayer.play()
-                }
-            }
-            .onDisappear {
-                videoManager.currentPlayer.pause()
-            }
+                if !videoManager.videoStack.isEmpty { videoManager.currentPlayer.play() } }
+            .onDisappear { videoManager.currentPlayer.pause() }
             .sheet(isPresented: $videoManager.isShowingShareSheet, onDismiss: {
                 videoManager.currentPlayer.play()
             }) {
                 if let items = videoManager.itemsToShare {
                     ShareSheet(items: items)
-                        .onAppear {
-                            videoManager.currentPlayer.pause()
+                        .onAppear { videoManager.currentPlayer.pause() }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Computed Properties & Helper Views
+    
+    /// Returns the overlay with play, pause, and restart indicators.
+    private var playPauseRestartIndicators: some View {
+        ZStack {
+            Image(systemName: "play.circle.fill")
+                .resizable()
+                .frame(width: 80, height: 80)
+                .foregroundColor(.white.opacity(0.8))
+                .opacity(showPlayIndicator ? 1 : 0)
+                .scaleEffect(showPlayIndicator ? 1 : 0.5)
+                .animation(.spring(response: 0.3), value: showPlayIndicator)
+            
+            Image(systemName: "pause.circle.fill")
+                .resizable()
+                .frame(width: 80, height: 80)
+                .foregroundColor(.white.opacity(0.8))
+                .opacity(showPauseIndicator ? 1 : 0)
+                .scaleEffect(showPauseIndicator ? 1 : 0.5)
+                .animation(.spring(response: 0.3), value: showPauseIndicator)
+            
+            Image(systemName: "arrow.counterclockwise.circle.fill")
+                .resizable()
+                .frame(width: 80, height: 80)
+                .foregroundColor(.white.opacity(0.8))
+                .opacity(showRestartIndicator ? 1 : 0)
+                .scaleEffect(showRestartIndicator ? 1 : 0.5)
+                .animation(.spring(response: 0.3), value: showRestartIndicator)
+        }
+        .zIndex(4)
+    }
+    
+    /// The "caught up" view shown when there are no videos.
+    private func caughtUpView(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 60))
+                .foregroundColor(.white)
+                .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                .animation(
+                    isRefreshing
+                    ? .linear(duration: 1).repeatForever(autoreverses: false)
+                    : .default,
+                    value: isRefreshing
+                )
+            
+            Text("You're all caught up!")
+                .foregroundColor(.white)
+                .font(.headline)
+            
+            Text("Check back later for new videos")
+                .foregroundColor(.gray)
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+            
+            Button(action: {
+                isRefreshing = true
+                Task {
+                    await videoManager.loadVideos(initial: true)
+                    try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
+                    await MainActor.run {
+                        isRefreshing = false
+                    }
+                }
+            }) {
+                Text("Tap to refresh")
+                    .foregroundColor(.gray)
+                    .font(.subheadline)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black)
+    }
+    
+    /// Returns the bottom card showing the next video.
+    @ViewBuilder
+    private func bottomCard(geometry: GeometryProxy) -> some View {
+        if videoManager.videoStack.count > 1 {
+            ZStack {
+                AutoplayVideoPlayer(player: videoManager.nextPlayer)
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .padding(.top, 60)
+                VStack {
+                    Spacer()
+                    LinearGradient(
+                        gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
+                        startPoint: .center,
+                        endPoint: .bottom
+                    )
+                    .frame(height: geometry.size.height / 2)
+                }
+            }
+            .frame(
+                width: geometry.size.width - cardSpacing * 2,
+                height: geometry.size.height - cardSpacing * 2
+            )
+            .zIndex(1)
+        }
+    }
+    
+    /// Returns the content for the top card.
+    private func topCardContent(geometry: GeometryProxy) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.black.opacity(0))
+            
+            AutoplayVideoPlayer(player: videoManager.currentPlayer)
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+                .padding(.top, 60)
+            
+            // Overlay: author and description
+            VStack {
+                Spacer()
+                ZStack(alignment: .bottom) {
+                    LinearGradient(
+                        gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
+                        startPoint: .center,
+                        endPoint: .bottom
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    
+                    if let currentVideo = videoManager.videoStack.first {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("@\(currentVideo.display_name)")
+                                .font(.headline)
+                                .bold()
+                            Text(currentVideo.description)
+                                .font(.subheadline)
+                                .lineLimit(2)
                         }
-                }
-            }
-        }
-    }
-    
-    // Rotation based on drag
-    private var rotationAngle: Double {
-        let dragPercentage = Double(dragOffset.width + offset.width) / 300
-        return dragPercentage * maxRotation
-    }
-    
-    private func onDragEnded(_ gesture: DragGesture.Value) {
-        let dragWidth = gesture.translation.width
-        let dragHeight = gesture.translation.height
-        
-        // Vertical swipes
-        if abs(dragHeight) > swipeThreshold && abs(dragHeight) > abs(dragWidth) {
-            if dragHeight < 0 {
-                // Up => share
-                showPaperAirplane = true
-                withAnimation(.easeOut(duration: 0.3)) {
-                    offset.height = -500
-                    paperAirplaneOffset = -200
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    videoManager.handleUpSwipe()
-                    withAnimation(.none) { offset = .zero }
-                    withAnimation(.easeOut(duration: 0.2)) { showPaperAirplane = false }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        paperAirplaneOffset = 0
+                        .foregroundColor(.white)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.bottom, 80)
                     }
                 }
-            } else {
-                // Down => save
-                showSaveIcon = true
-                withAnimation(.easeOut(duration: 0.3)) {
-                    offset.height = 500
-                    saveIconOffset = 200
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    videoManager.handleDownSwipe()
-                    withAnimation(.none) { offset = .zero }
-                    withAnimation(.easeOut(duration: 0.2)) { showSaveIcon = false }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        saveIconOffset = 0
-                    }
-                }
+                .frame(height: geometry.size.height / 2)
             }
         }
-        // Horizontal swipes
-        else if abs(dragWidth) > swipeThreshold && abs(dragWidth) > abs(dragHeight) {
-            let direction: CGFloat = dragWidth > 0 ? 1 : -1
-            if direction > 0 {
-                showThumbsUp = true
+        .frame(
+            width: geometry.size.width - cardSpacing * 2,
+            height: geometry.size.height - cardSpacing * 2
+        )
+        .simultaneousGesture(
+            TapGesture(count: 2)
+                .onEnded {
+                    withAnimation(.none) {
+                        showPlayIndicator = false
+                        showPauseIndicator = false
+                        showRestartIndicator = false
+                    }
+                    withAnimation {
+                        showRestartIndicator = true
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        withAnimation {
+                            showRestartIndicator = false
+                        }
+                    }
+                    videoManager.currentPlayer.seek(to: .zero)
+                    videoManager.currentPlayer.play()
+                }
+        )
+        .onTapGesture {
+            let isPlaying = videoManager.currentPlayer.timeControlStatus == .playing
+            
+            withAnimation(.none) {
+                showPlayIndicator = false
+                showPauseIndicator = false
+                showRestartIndicator = false
+            }
+            
+            if isPlaying {
+                withAnimation { showPauseIndicator = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    withAnimation { showPauseIndicator = false }
+                }
             } else {
-                showThumbsDown = true
-            }
-            withAnimation(.easeOut(duration: 0.3)) {
-                offset.width = direction * 500
-                offset.height = gesture.translation.height
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                if direction > 0 {
-                    videoManager.handleRightSwipe()
-                } else {
-                    videoManager.handleLeftSwipe()
-                }
-                withAnimation(.none) {
-                    offset = .zero
-                }
-                withAnimation(.easeOut(duration: 0.2)) {
-                    showThumbsUp = false
-                    showThumbsDown = false
+                withAnimation { showPlayIndicator = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    withAnimation { showPlayIndicator = false }
                 }
             }
-        } else {
-            // If not swiping far enough, spring back
-            withAnimation(.interactiveSpring(response: 0.3, dampingFraction: 0.6)) {
-                offset = .zero
+            
+            if isPlaying {
+                videoManager.currentPlayer.pause()
+            } else {
+                videoManager.currentPlayer.play()
             }
         }
     }
