@@ -5,44 +5,90 @@ struct VideoInfoOverlay: View {
     let video: VideoItem
     @State private var gifData: Data? = nil
     @State private var isLoadingGif = false
+    @State private var showDisplayName = false
     
     private let functions = Functions.functions(region: "us-central1")
     
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             // Profile GIF
-            if let data = gifData {
-                AnimatedGIFView(gifData: data)
-                    .frame(width: 40, height: 40)
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
-            } else {
-                Circle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(width: 40, height: 40)
-                    .overlay {
-                        if isLoadingGif {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .scaleEffect(0.7)
+            ZStack {
+                if let data = gifData {
+                    AnimatedGIFView(gifData: data)
+                        .frame(width: 44, height: 44)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1))
+                        .overlay(
+                            Circle()
+                                .strokeBorder(
+                                    LinearGradient(
+                                        colors: [
+                                            .white.opacity(0.3),
+                                            .white.opacity(0.1)
+                                        ],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    ),
+                                    lineWidth: 2
+                                )
+                        )
+                        .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                } else {
+                    Circle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 44, height: 44)
+                        .overlay(
+                            Circle()
+                                .strokeBorder(
+                                    LinearGradient(
+                                        colors: [
+                                            .white.opacity(0.3),
+                                            .white.opacity(0.1)
+                                        ],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    ),
+                                    lineWidth: 2
+                                )
+                        )
+                        .overlay {
+                            if isLoadingGif {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .scaleEffect(0.7)
+                            }
                         }
-                    }
+                }
             }
             
             // Video Info
-            VStack(alignment: .leading, spacing: 8) {
-                Text("@\(video.display_name)")
-                    .font(.headline)
-                    .bold()
+            VStack(alignment: .leading, spacing: 4) {
+                if showDisplayName {
+                    Text("@\(video.display_name)")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.white)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+                
                 Text(video.description)
-                    .font(.subheadline)
+                    .font(.system(size: 15, weight: .medium))
+                    .lineSpacing(3)
                     .lineLimit(2)
+                    .opacity(0.95)
             }
             .foregroundColor(.white)
+            .padding(.top, 4)
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: showDisplayName)
         }
-        .padding()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())  // Makes entire area tappable
+        .onTapGesture {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                showDisplayName.toggle()
+            }
+        }
         .task {
             await loadProfileGif()
         }
