@@ -3,6 +3,7 @@ import UIKit
 import SafariServices
 import UniformTypeIdentifiers
 import FirebaseFirestore
+import FirebaseAuth
 
 struct SavedVideosTabView: View {
     @ObservedObject var videoManager: VideoManager
@@ -14,6 +15,7 @@ struct SavedVideosTabView: View {
     @State private var selectedVideoURL: URL? = nil
     @State private var creatorIcons: [String: Data] = [:]
     @State private var showingUsernameForVideo: String? = nil
+    @State private var isLoading = true
     
     private let db = Firestore.firestore()
     
@@ -66,7 +68,11 @@ struct SavedVideosTabView: View {
                     
                     // Saved Videos Section
                     Group {
-                        if videoManager.savedVideos.isEmpty {
+                        if isLoading {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .tint(.white)
+                        } else if videoManager.savedVideos.isEmpty {
                             Text("No saved videos yet")
                                 .foregroundColor(.gray)
                                 .padding(.top, 40)
@@ -86,6 +92,45 @@ struct SavedVideosTabView: View {
                     SafariView(url: url)
                 }
             }
+            .task {
+                await loadSavedVideos()
+            }
+            .refreshable {
+                await loadSavedVideos()
+            }
+        }
+    }
+    
+    private func loadSavedVideos() async {
+        guard let userId = Auth.auth().currentUser?.uid else { return }
+        
+        isLoading = true
+        do {
+            let snapshot = try await db.collection("users").document(userId)
+                .collection("saved_videos")
+                .order(by: "saved_at", descending: true)
+                .getDocuments()
+            
+            let videos = snapshot.documents.compactMap { document -> VideoItem? in
+                let data = document.data()
+                return VideoItem(
+                    id: data["id"] as? String ?? "",
+                    playback_id: data["playback_id"] as? String ?? "",
+                    creator: data["creator"] as? String ?? "",
+                    display_name: data["display_name"] as? String ?? "",
+                    description: data["description"] as? String ?? "",
+                    created_at: Double(data["created_at"] as? Int ?? 0),
+                    status: "ready"
+                )
+            }
+            
+            await MainActor.run {
+                videoManager.savedVideos = videos
+                isLoading = false
+            }
+        } catch {
+            print("Error loading saved videos: \(error.localizedDescription)")
+            isLoading = false
         }
     }
     
