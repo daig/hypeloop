@@ -2,8 +2,6 @@ import SwiftUI
 import AVKit
 import UIKit
 
-// Custom VideoPlayer view that hides controls.
-// Now accepts a flag so that the video can be shown statically.
 struct AutoplayVideoPlayer: UIViewControllerRepresentable {
     let player: AVQueuePlayer
     var shouldAutoplay: Bool = true
@@ -16,10 +14,9 @@ struct AutoplayVideoPlayer: UIViewControllerRepresentable {
         controller.view.backgroundColor = .clear
         controller.contentOverlayView?.backgroundColor = .clear
         
-        // Enable HLS adaptive bitrate streaming
         if let currentItem = player.currentItem {
-            currentItem.preferredPeakBitRate = 0 // Let AVPlayer choose the best bitrate
-            currentItem.preferredForwardBufferDuration = 2 // Small buffer for quick start
+            currentItem.preferredPeakBitRate = 0
+            currentItem.preferredForwardBufferDuration = 2
         }
         
         return controller
@@ -28,13 +25,11 @@ struct AutoplayVideoPlayer: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
         uiViewController.player = player
         
-        // Update HLS settings for new player item
         if let currentItem = player.currentItem {
             currentItem.preferredPeakBitRate = 0
             currentItem.preferredForwardBufferDuration = 2
         }
         
-        // Control playback based on shouldAutoplay flag
         if shouldAutoplay {
             player.play()
         } else {
@@ -43,7 +38,7 @@ struct AutoplayVideoPlayer: UIViewControllerRepresentable {
     }
     
     func dismantleUIViewController(_ uiViewController: AVPlayerViewController, coordinator: Coordinator) {
-        // Clean up any resources if needed
+        // No extra teardown needed
     }
     
     func makeCoordinator() -> Coordinator {
@@ -52,14 +47,12 @@ struct AutoplayVideoPlayer: UIViewControllerRepresentable {
     
     class Coordinator: NSObject {
         let parent: AutoplayVideoPlayer
-        
         init(_ parent: AutoplayVideoPlayer) {
             self.parent = parent
         }
     }
 }
 
-// ShareSheet wrapper for UIActivityViewController
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
     
@@ -82,7 +75,7 @@ struct SwipeableVideoPlayer: View {
     @State private var saveIconOffset: CGFloat = 0
     @State private var isRefreshing = false
     
-    // Constants for card animations
+    // Constants
     private let swipeThreshold: CGFloat = 100
     private let maxRotation: Double = 35
     private let cardSpacing: CGFloat = 15
@@ -90,7 +83,7 @@ struct SwipeableVideoPlayer: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Empty state with refresh button
+                // If empty, show "caught up" message
                 if videoManager.videoStack.isEmpty {
                     VStack(spacing: 16) {
                         Image(systemName: "checkmark.circle.fill")
@@ -118,8 +111,7 @@ struct SwipeableVideoPlayer: View {
                             isRefreshing = true
                             Task {
                                 await videoManager.loadVideos(initial: true)
-                                // Set isRefreshing back to false after a short delay
-                                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
                                 await MainActor.run {
                                     isRefreshing = false
                                 }
@@ -133,24 +125,20 @@ struct SwipeableVideoPlayer: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
                 } else {
-                    // Two fixed "card" layers: the next card (if any) behind, and the top card in front.
                     ZStack {
-                        // Bottom card: next video (only if there's more than one)
+                        // Bottom card: next video
                         if videoManager.videoStack.count > 1 {
                             ZStack {
-                                RoundedRectangle(cornerRadius: 20)
-                                    .fill(Color.black)
-                                
+                                RoundedRectangle(cornerRadius: 20).fill(Color.black)
                                 AutoplayVideoPlayer(player: videoManager.nextPlayer)
                                     .clipShape(RoundedRectangle(cornerRadius: 20))
                                     .padding(.top, 60)
-                                
-                                // Add the same overlay gradient for consistency
+                                // Overlay gradient
                                 VStack {
                                     Spacer()
                                     LinearGradient(
                                         gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
-                                        startPoint: UnitPoint(x: 0.5, y: 0.3),
+                                        startPoint: .center,
                                         endPoint: .bottom
                                     )
                                     .frame(height: geometry.size.height / 2)
@@ -172,13 +160,13 @@ struct SwipeableVideoPlayer: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 20))
                                 .padding(.top, 60)
                             
-                            // Overlay for author and description
+                            // Overlay with author + description
                             VStack {
                                 Spacer()
                                 ZStack(alignment: .bottom) {
                                     LinearGradient(
                                         gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
-                                        startPoint: UnitPoint(x: 0.5, y: 0.3),
+                                        startPoint: .center,
                                         endPoint: .bottom
                                     )
                                     
@@ -204,7 +192,8 @@ struct SwipeableVideoPlayer: View {
                             width: geometry.size.width - cardSpacing * 2,
                             height: geometry.size.height - cardSpacing * 2
                         )
-                        .offset(x: offset.width + dragOffset.width, y: offset.height + dragOffset.height)
+                        .offset(x: offset.width + dragOffset.width,
+                                y: offset.height + dragOffset.height)
                         .rotationEffect(.degrees(rotationAngle))
                         .gesture(
                             DragGesture()
@@ -220,7 +209,7 @@ struct SwipeableVideoPlayer: View {
                         .zIndex(2)
                     }
                     
-                    // Paper airplane overlay
+                    // Overlays for swipe feedback
                     Image(systemName: "paperplane.fill")
                         .resizable()
                         .frame(width: 100, height: 100)
@@ -233,7 +222,6 @@ struct SwipeableVideoPlayer: View {
                         .animation(.interpolatingSpring(stiffness: 40, damping: 8), value: paperAirplaneOffset)
                         .zIndex(3)
                     
-                    // Thumbs up overlay
                     Image(systemName: "hand.thumbsup.fill")
                         .resizable()
                         .frame(width: 100, height: 100)
@@ -243,7 +231,6 @@ struct SwipeableVideoPlayer: View {
                         .animation(.spring(response: 0.3), value: showThumbsUp)
                         .zIndex(3)
                     
-                    // Thumbs down overlay
                     Image(systemName: "hand.thumbsdown.fill")
                         .resizable()
                         .frame(width: 100, height: 100)
@@ -253,7 +240,6 @@ struct SwipeableVideoPlayer: View {
                         .animation(.spring(response: 0.3), value: showThumbsDown)
                         .zIndex(3)
                     
-                    // Save icon overlay
                     Image(systemName: "square.and.arrow.down.fill")
                         .resizable()
                         .frame(width: 100, height: 100)
@@ -267,8 +253,11 @@ struct SwipeableVideoPlayer: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Only auto-play if there's actually a video
             .onAppear {
-                videoManager.currentPlayer.play()
+                if !videoManager.videoStack.isEmpty {
+                    videoManager.currentPlayer.play()
+                }
             }
             .onDisappear {
                 videoManager.currentPlayer.pause()
@@ -281,21 +270,20 @@ struct SwipeableVideoPlayer: View {
         }
     }
     
-    // Calculate rotation based on drag offset.
+    // Rotation based on drag
     private var rotationAngle: Double {
         let dragPercentage = Double(dragOffset.width + offset.width) / 300
         return dragPercentage * maxRotation
     }
     
-    // Handle drag gesture end.
     private func onDragEnded(_ gesture: DragGesture.Value) {
         let dragWidth = gesture.translation.width
         let dragHeight = gesture.translation.height
         
-        // Vertical swipes.
+        // Vertical swipes
         if abs(dragHeight) > swipeThreshold && abs(dragHeight) > abs(dragWidth) {
             if dragHeight < 0 {
-                // Swipe up: trigger share action.
+                // Up => share
                 showPaperAirplane = true
                 withAnimation(.easeOut(duration: 0.3)) {
                     offset.height = -500
@@ -310,9 +298,8 @@ struct SwipeableVideoPlayer: View {
                     }
                 }
             } else {
-                // Swipe down: trigger save action.
+                // Down => save
                 showSaveIcon = true
-                saveIconOffset = 0
                 withAnimation(.easeOut(duration: 0.3)) {
                     offset.height = 500
                     saveIconOffset = 200
@@ -327,7 +314,7 @@ struct SwipeableVideoPlayer: View {
                 }
             }
         }
-        // Horizontal swipes.
+        // Horizontal swipes
         else if abs(dragWidth) > swipeThreshold && abs(dragWidth) > abs(dragHeight) {
             let direction: CGFloat = dragWidth > 0 ? 1 : -1
             if direction > 0 {
@@ -345,7 +332,7 @@ struct SwipeableVideoPlayer: View {
                 } else {
                     videoManager.handleLeftSwipe()
                 }
-                withAnimation(.none) { 
+                withAnimation(.none) {
                     offset = .zero
                 }
                 withAnimation(.easeOut(duration: 0.2)) {
@@ -354,6 +341,7 @@ struct SwipeableVideoPlayer: View {
                 }
             }
         } else {
+            // If not swiping far enough, spring back
             withAnimation(.interactiveSpring(response: 0.3, dampingFraction: 0.6)) {
                 offset = .zero
             }
