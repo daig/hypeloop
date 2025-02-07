@@ -43,8 +43,8 @@ extension VideoManager {
             nextPlayer = oldPlayer
             nextLooper = oldLooper
             
-            // Set volumes accordingly
-            currentPlayer.volume = 1
+            // Set volumes according to mute state
+            currentPlayer.volume = isMuted ? 0 : 1
             nextPlayer.volume = 0
             
             currentVideo = nextVideo

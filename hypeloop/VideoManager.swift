@@ -20,6 +20,7 @@ class VideoManager: ObservableObject {
     @Published internal(set) var savedVideos: [VideoItem] = []
     @Published internal var isLoading = false
     @Published internal(set) var allVideosSeen = false
+    @Published var isMuted = false
     
     // Player loopers for smooth video looping
     internal var currentLooper: AVPlayerLooper?
@@ -61,6 +62,11 @@ class VideoManager: ObservableObject {
         await loadVideos(initial: true)
         
         print("📹 VideoManager initialization complete")
+    }
+    
+    func toggleMute() {
+        isMuted.toggle()
+        currentPlayer.volume = isMuted ? 0 : 1
     }
     
     deinit {

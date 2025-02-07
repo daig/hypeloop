@@ -59,6 +59,26 @@ struct SwipeableVideoPlayer: View {
                         SwipeableCard(configuration: swipeConfiguration) {
                             topCardContent(geometry: geometry)
                         }.zIndex(2)
+                        
+                        // Floating mute button
+                        VStack {
+                            HStack {
+                                Button(action: {
+                                    videoManager.toggleMute()
+                                }) {
+                                    Image(systemName: videoManager.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                        .foregroundColor(.white)
+                                        .padding(8)
+                                        .background(Color.black.opacity(0.5))
+                                        .clipShape(Circle())
+                                }
+                                .padding(16)
+                                Spacer()
+                            }
+                            .padding(.top, 50)
+                            Spacer()
+                        }
+                        .zIndex(5) // Ensure it's above all other content
                     }
                 }
             }
