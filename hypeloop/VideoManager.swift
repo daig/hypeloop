@@ -21,8 +21,8 @@ struct VideoItem: Codable {
 
 class VideoManager: ObservableObject {
     @Published private(set) var videoStack: [VideoItem] = []
-    @Published var currentPlayer: AVPlayer
-    @Published var nextPlayer: AVPlayer
+    @Published var currentPlayer: AVQueuePlayer
+    @Published var nextPlayer: AVQueuePlayer
     @Published private(set) var currentVideo: VideoItem?
     @Published var isShowingShareSheet = false
     @Published var itemsToShare: [Any]?
@@ -30,9 +30,9 @@ class VideoManager: ObservableObject {
     @Published private var isLoading = false
     @Published private(set) var allVideosSeen = false
     
-    // Observers for video end notifications
-    private var currentItemObserver: NSObjectProtocol?
-    private var nextItemObserver: NSObjectProtocol?
+    // Player loopers for smooth video looping
+    private var currentLooper: AVPlayerLooper?
+    private var nextLooper: AVPlayerLooper?
     private var seenVideosFilter: BloomFilterStore
     
     // Firestore instance
@@ -41,8 +41,8 @@ class VideoManager: ObservableObject {
     init() async {
         print("📹 Initializing VideoManager")
         // Initialize players and the bloom filter.
-        currentPlayer = AVPlayer()
-        nextPlayer = AVPlayer()
+        currentPlayer = AVQueuePlayer()
+        nextPlayer = AVQueuePlayer()
         seenVideosFilter = BloomFilterStore()
         
         // Configure nextPlayer to be muted.
@@ -157,29 +157,14 @@ class VideoManager: ObservableObject {
         
         let player = isNext ? nextPlayer : currentPlayer
         
-        // Remove existing observer
-        let existingObserver = isNext ? nextItemObserver : currentItemObserver
-        if let observer = existingObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
+        // Create a new player looper
+        let looper = AVPlayerLooper(player: player, templateItem: item)
         
-        // Add new observer
-        let observer = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: item,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self = self else { return }
-            player.seek(to: .zero) { _ in
-                player.play()
-            }
-        }
-        
-        // Store observer reference
+        // Store looper reference
         if isNext {
-            nextItemObserver = observer
+            nextLooper = looper
         } else {
-            currentItemObserver = observer
+            currentLooper = looper
         }
     }
     
@@ -230,21 +215,18 @@ class VideoManager: ObservableObject {
         }
         
         if let nextVideo = videoStack.first {
-            // Swap the players.
+            // Swap the players and loopers
             let oldPlayer = currentPlayer
-            currentPlayer = nextPlayer
-            nextPlayer = oldPlayer
+            let oldLooper = currentLooper
             
-            // Ensure the current player's item is properly set up for looping
-            if let currentItem = currentPlayer.currentItem {
-                setupPlayerItem(currentItem)
-            }
+            currentPlayer = nextPlayer
+            currentLooper = nextLooper
+            
+            nextPlayer = oldPlayer
+            nextLooper = oldLooper
             
             // Update volumes and ensure playback
             currentPlayer.volume = 1
-            currentPlayer.seek(to: .zero) { _ in
-                self.currentPlayer.play()
-            }
             nextPlayer.volume = 0
             
             self.currentVideo = nextVideo
@@ -289,12 +271,9 @@ class VideoManager: ObservableObject {
     }
     
     deinit {
-        if let observer = currentItemObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let observer = nextItemObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
+        // Invalidate loopers
+        currentLooper?.disableLooping()
+        nextLooper?.disableLooping()
         
         currentPlayer.pause()
         nextPlayer.pause()

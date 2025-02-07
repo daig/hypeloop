@@ -5,7 +5,7 @@ import UIKit
 // Custom VideoPlayer view that hides controls.
 // Now accepts a flag so that the video can be shown statically.
 struct AutoplayVideoPlayer: UIViewControllerRepresentable {
-    let player: AVPlayer
+    let player: AVQueuePlayer
     var shouldAutoplay: Bool = true
     
     func makeUIViewController(context: Context) -> AVPlayerViewController {
