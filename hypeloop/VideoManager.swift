@@ -157,25 +157,25 @@ class VideoManager: ObservableObject {
         
         let player = isNext ? nextPlayer : currentPlayer
         
-        if isNext {
-            if let observer = nextItemObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
-        } else {
-            if let observer = currentItemObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
+        // Remove existing observer
+        let existingObserver = isNext ? nextItemObserver : currentItemObserver
+        if let observer = existingObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
         
+        // Add new observer
         let observer = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item,
             queue: .main
         ) { [weak self] _ in
-            player.seek(to: .zero)
-            player.play()
+            guard let self = self else { return }
+            player.seek(to: .zero) { _ in
+                player.play()
+            }
         }
         
+        // Store observer reference
         if isNext {
             nextItemObserver = observer
         } else {
@@ -235,9 +235,16 @@ class VideoManager: ObservableObject {
             currentPlayer = nextPlayer
             nextPlayer = oldPlayer
             
+            // Ensure the current player's item is properly set up for looping
+            if let currentItem = currentPlayer.currentItem {
+                setupPlayerItem(currentItem)
+            }
+            
             // Update volumes and ensure playback
             currentPlayer.volume = 1
-            currentPlayer.play()
+            currentPlayer.seek(to: .zero) { _ in
+                self.currentPlayer.play()
+            }
             nextPlayer.volume = 0
             
             self.currentVideo = nextVideo
