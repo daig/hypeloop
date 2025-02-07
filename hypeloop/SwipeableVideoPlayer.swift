@@ -262,9 +262,16 @@ struct SwipeableVideoPlayer: View {
             .onDisappear {
                 videoManager.currentPlayer.pause()
             }
-            .sheet(isPresented: $videoManager.isShowingShareSheet) {
+            .sheet(isPresented: $videoManager.isShowingShareSheet, onDismiss: {
+                if !videoManager.videoStack.isEmpty {
+                    videoManager.currentPlayer.play()
+                }
+            }) {
                 if let items = videoManager.itemsToShare {
                     ShareSheet(items: items)
+                    .onAppear {
+                        videoManager.currentPlayer.pause()
+                    }
                 }
             }
         }
