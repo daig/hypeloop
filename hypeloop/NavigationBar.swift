@@ -38,7 +38,18 @@ struct NavigationBar: View {
             .padding(.vertical, 10)
             .padding(.bottom, 20)
             .frame(maxWidth: .infinity)
-            .background(.ultraThinMaterial)
+            .background(
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: Color.black.opacity(0.5), location: 0.05),
+                        .init(color: Color.black.opacity(0.8), location: 0.3),
+                        .init(color: .black, location: 0.8)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
         }
         .ignoresSafeArea()
     }
