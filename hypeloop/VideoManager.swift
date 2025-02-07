@@ -39,6 +39,14 @@ class VideoManager: ObservableObject {
         // Configure nextPlayer to be muted initially
         nextPlayer.volume = 0
         
+        // Configure audio session
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("❌ Failed to configure audio session: \(error)")
+        }
+        
         // Wait for the bloom filter to load
         print("📹 Waiting for bloom filter to load...")
         let startTime = Date()
