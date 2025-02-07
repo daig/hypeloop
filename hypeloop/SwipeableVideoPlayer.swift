@@ -129,7 +129,6 @@ struct SwipeableVideoPlayer: View {
                         // Bottom card: next video
                         if videoManager.videoStack.count > 1 {
                             ZStack {
-                                RoundedRectangle(cornerRadius: 20).fill(Color.black)
                                 AutoplayVideoPlayer(player: videoManager.nextPlayer)
                                     .clipShape(RoundedRectangle(cornerRadius: 20))
                                     .padding(.top, 60)
@@ -169,6 +168,7 @@ struct SwipeableVideoPlayer: View {
                                         startPoint: .center,
                                         endPoint: .bottom
                                     )
+                                    .clipShape(RoundedRectangle(cornerRadius: 20))
                                     
                                     if let currentVideo = videoManager.videoStack.first {
                                         VStack(alignment: .leading, spacing: 8) {
