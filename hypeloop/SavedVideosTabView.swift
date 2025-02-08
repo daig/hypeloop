@@ -31,7 +31,7 @@ struct SavedVideosTabView: View {
                 Color.black.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
-                    // User Profile Section
+                    // User Profile Section - Now fixed at the top
                     VStack(spacing: 16) {
                         // User Icon
                         if let iconData = authService.userIconData {
@@ -66,18 +66,23 @@ struct SavedVideosTabView: View {
                     }
                     .padding(.vertical, 24)
                     
-                    // Saved Videos Section
-                    Group {
-                        if isLoading {
-                            ProgressView()
-                                .progressViewStyle(.circular)
-                                .tint(.white)
-                        } else if videoManager.savedVideos.isEmpty {
-                            Text("No saved videos yet")
-                                .foregroundColor(.gray)
-                                .padding(.top, 40)
-                        } else {
-                            savedVideosGrid
+                    // Content Section - Always fills remaining space
+                    ScrollView {
+                        VStack {
+                            if isLoading {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                                    .tint(.white)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .frame(minHeight: 200) // Minimum height to prevent layout shifts
+                            } else if videoManager.savedVideos.isEmpty {
+                                Text("No saved videos yet")
+                                    .foregroundColor(.gray)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .frame(minHeight: 200) // Minimum height to prevent layout shifts
+                            } else {
+                                savedVideosGrid
+                            }
                         }
                     }
                 }
