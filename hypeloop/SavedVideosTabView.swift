@@ -16,6 +16,7 @@ struct SavedVideosTabView: View {
     @State private var creatorIcons: [String: Data] = [:]
     @State private var showingUsernameForVideo: String? = nil
     @State private var isLoading = true
+    @State private var shimmerOffset: CGFloat = -200
     
     private let db = Firestore.firestore()
     
@@ -68,21 +69,25 @@ struct SavedVideosTabView: View {
                     
                     // Content Section - Always fills remaining space
                     ScrollView {
-                        VStack {
-                            if isLoading {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
-                                    .tint(.white)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                    .frame(minHeight: 200) // Minimum height to prevent layout shifts
-                            } else if videoManager.savedVideos.isEmpty {
+                        VStack(spacing: 0) {
+                            if videoManager.savedVideos.isEmpty && !isLoading {
                                 Text("No saved videos yet")
                                     .foregroundColor(.gray)
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                    .frame(minHeight: 200) // Minimum height to prevent layout shifts
+                                    .frame(minHeight: 200)
                             } else {
-                                savedVideosGrid
+                                ZStack(alignment: .top) {
+                                    loadingPlaceholderGrid
+                                        .opacity(isLoading ? 1 : 0)
+                                    
+                                    savedVideosGrid
+                                        .opacity(isLoading ? 0 : 1)
+                                }
+                                .animation(.easeInOut(duration: 0.6), value: isLoading)
                             }
+                            
+                            // Add spacer at the bottom to push content to top
+                            Spacer(minLength: 0)
                         }
                     }
                 }
@@ -139,15 +144,68 @@ struct SavedVideosTabView: View {
         }
     }
     
-    private var savedVideosGrid: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(videoManager.savedVideos, id: \.id) { video in
-                    savedVideoCell(for: video)
-                }
+    private var loadingPlaceholderGrid: some View {
+        LazyVGrid(columns: columns, spacing: 12) {
+            ForEach(0..<6, id: \.self) { index in
+                placeholderCell
+                    .transition(.opacity.combined(with: .offset(y: 20)))
             }
-            .padding(12)
         }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .onAppear {
+            startShimmerAnimation()
+        }
+    }
+    
+    private func startShimmerAnimation() {
+        withAnimation(
+            .linear(duration: 1.5)
+            .repeatForever(autoreverses: false)
+        ) {
+            shimmerOffset = UIScreen.main.bounds.width
+        }
+    }
+    
+    private var placeholderCell: some View {
+        RoundedRectangle(cornerRadius: 12)
+            .fill(Color.gray.opacity(0.2))
+            .frame(width: (UIScreen.main.bounds.width - 36) / 2, height: 280)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color.white.opacity(0),
+                                Color.white.opacity(0.2),
+                                Color.white.opacity(0)
+                            ]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .offset(x: shimmerOffset)
+                    .mask(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.white)
+                    )
+            )
+    }
+    
+    private var savedVideosGrid: some View {
+        LazyVGrid(columns: columns, spacing: 12) {
+            ForEach(Array(videoManager.savedVideos.enumerated()), id: \.element.id) { index, video in
+                savedVideoCell(for: video)
+                    .transition(.opacity.combined(with: .offset(y: 20)))
+                    .animation(
+                        .spring(response: 0.5, dampingFraction: 0.8)
+                        .delay(Double(index) * 0.1),
+                        value: videoManager.savedVideos
+                    )
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .top)
     }
     
     private func savedVideoCell(for video: VideoItem) -> some View {

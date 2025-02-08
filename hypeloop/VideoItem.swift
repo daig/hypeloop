@@ -5,7 +5,7 @@
 
 import Foundation
 
-struct VideoItem: Codable {
+struct VideoItem: Codable, Equatable {
     let id: String
     let playback_id: String
     let creator: String       // Hash of the creator's identifier
@@ -16,5 +16,9 @@ struct VideoItem: Codable {
     
     var playbackUrl: URL {
         URL(string: "https://stream.mux.com/\(playback_id).m3u8")!
+    }
+    
+    static func == (lhs: VideoItem, rhs: VideoItem) -> Bool {
+        lhs.id == rhs.id
     }
 }
