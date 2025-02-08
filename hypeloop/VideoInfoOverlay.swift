@@ -45,8 +45,8 @@ struct VideoInfoOverlay: View {
                                     .font(.system(size: 21, weight: .semibold, design: .rounded))
                                     .lineSpacing(6)
                                     .multilineTextAlignment(.center)
-                                    .foregroundColor(.white)
-                                    .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                                    .foregroundColor(.white.opacity(0.85))
+                                    .shadow(color: .black, radius: 2, x: 0, y: 1)
                                 
                                 // Rest of description
                                 if remainingLines.isEmpty == false {
@@ -54,39 +54,61 @@ struct VideoInfoOverlay: View {
                                         .font(.system(size: 17, weight: .regular, design: .default))
                                         .lineSpacing(8)
                                         .multilineTextAlignment(.center)
-                                        .foregroundColor(.white.opacity(0.95))
-                                        .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 1)
+                                        .foregroundColor(.white.opacity(0.75))
+                                        .shadow(color: .black, radius: 2, x: 0, y: 1)
                                 }
                             }
                             .padding(.horizontal, 32)
                             .padding(.bottom, 32)
+                            .padding(.top, 16) // Add padding for top fade
                             .transition(.opacity.combined(with: .scale(scale: 0.97)))
                         }
                         .frame(maxHeight: geometry.size.height * 0.25)
-                        
-                        // Fade-out gradient at bottom
-                        LinearGradient(
-                            gradient: Gradient(colors: [
-                                .black.opacity(0),
-                                .black.opacity(0.6),
-                                .black.opacity(0.9)
-                            ]),
-                            startPoint: .top,
-                            endPoint: .bottom
+                        .mask(
+                            VStack(spacing: 0) {
+                                // Top fade - smoother transition
+                                LinearGradient(
+                                    gradient: Gradient(stops: [
+                                        .init(color: .clear, location: 0),
+                                        .init(color: .black.opacity(0.6), location: 0.2),
+                                        .init(color: .black, location: 0.4)
+                                    ]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                                .frame(height: 12)
+                                
+                                // Middle solid section
+                                Rectangle()
+                                
+                                // Bottom fade - even softer transition
+                                LinearGradient(
+                                    gradient: Gradient(stops: [
+                                        .init(color: .black, location: 0),
+                                        .init(color: .black, location: 0.2),
+                                        .init(color: .black.opacity(0.6), location: 0.4),
+                                        .init(color: .clear, location: 1)
+                                    ]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                                .frame(height: 40)
+                            }
                         )
-                        .frame(height: 40)
-                        .allowsHitTesting(false)
                     }
                     
                     // Creator info with slide-up animation
                     HStack(spacing: 12) {
-                        // Profile GIF
+                        // Profile GIF with improved styling
                         ZStack {
                             if let data = gifData {
                                 AnimatedGIFView(gifData: data)
-                                    .frame(width: 36, height: 36)
+                                    .frame(width: 38, height: 38)
                                     .clipShape(Circle())
-                                    .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1))
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color.white.opacity(0.15), lineWidth: 1.5)
+                                    )
                                     .overlay(
                                         Circle()
                                             .strokeBorder(
@@ -97,13 +119,19 @@ struct VideoInfoOverlay: View {
                                                     ],
                                                     startPoint: .top,
                                                     endPoint: .bottom
-                                                )
+                                                ),
+                                                lineWidth: 1
                                             )
                                     )
+                                    .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 1)
                             } else {
                                 Circle()
                                     .fill(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
-                                    .frame(width: 36, height: 36)
+                                    .frame(width: 38, height: 38)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color.white.opacity(0.15), lineWidth: 1.5)
+                                    )
                                     .overlay(
                                         ZStack {
                                             if isLoadingGif {
@@ -117,12 +145,22 @@ struct VideoInfoOverlay: View {
                         }
                         
                         Text("@\(video.display_name)")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.white)
+                            .font(.system(size: 16, weight: .medium, design: .rounded))
+                            .foregroundColor(.white.opacity(0.9))
+                            .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 16)
-                    .transition(.move(edge: .bottom))
+                    .padding(.horizontal, 32) // Match description padding
+                    .padding(.vertical, 20)
+                    .frame(maxWidth: .infinity, alignment: .leading) // Left align
+                    .contentShape(Rectangle()) // Improve tap target
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .offset(y: 10))
+                                .animation(.spring(response: 0.35, dampingFraction: 0.8).delay(0.1)),
+                            removal: .opacity.combined(with: .offset(y: 5))
+                                .animation(.easeOut(duration: 0.2))
+                        )
+                    )
                 }
             }
         }
