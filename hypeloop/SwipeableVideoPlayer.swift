@@ -206,6 +206,7 @@ struct SwipeableVideoPlayer: View {
         if videoManager.videoStack.count > 1 {
             ZStack {
                 AutoplayVideoPlayer(player: videoManager.nextPlayer)
+                    .aspectRatio(9/16, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                     .padding(.top, 60)
                 if let nextVideo = videoManager.videoStack.dropFirst().first {
@@ -231,6 +232,7 @@ struct SwipeableVideoPlayer: View {
             
             // Video Player
             AutoplayVideoPlayer(player: videoManager.currentPlayer)
+                .aspectRatio(9/16, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 20))
                 .padding(.top, 60)
                 .opacity(isSwipingAway ? 0 : 1) // Hide the video when swiping away
