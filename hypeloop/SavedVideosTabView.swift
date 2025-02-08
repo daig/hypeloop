@@ -20,6 +20,7 @@ struct SavedVideosTabView: View {
     @State private var currentPage = 0
     @State private var hasMoreContent = true
     @State private var isLoadingMore = false
+    @State private var thumbnailRetryAttempts: [String: Int] = [:]
     private let videosPerPage = 20
     
     private let db = Firestore.firestore()
@@ -274,7 +275,7 @@ struct SavedVideosTabView: View {
     
     private func savedVideoCell(for video: VideoItem) -> some View {
         ZStack(alignment: .bottom) {
-            // Thumbnail with optimized loading
+            // Thumbnail with optimized loading and retry mechanism
             AsyncImage(url: URL(string: "https://image.mux.com/\(video.playback_id)/thumbnail.jpg?time=0&width=200&fit_mode=preserve&quality=75"),
                       transaction: Transaction(animation: .easeInOut(duration: 0.3))) { phase in
                 switch phase {
@@ -299,14 +300,31 @@ struct SavedVideosTabView: View {
                                 .font(.system(size: 24))
                         )
                         .onAppear {
-                            // Force a reload of the image after a short delay
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                // Clear the image cache for this URL
-                                URLCache.shared.removeCachedResponse(
-                                    for: URLRequest(
-                                        url: URL(string: "https://image.mux.com/\(video.playback_id)/thumbnail.jpg?time=0&width=200&fit_mode=preserve&quality=75")!
+                            let currentAttempt = thumbnailRetryAttempts[video.id] ?? 0
+                            let maxAttempts = 5 // Maximum number of retry attempts
+                            
+                            if currentAttempt < maxAttempts {
+                                // Calculate delay with exponential backoff (2^n seconds)
+                                let delay = pow(2.0, Double(currentAttempt))
+                                thumbnailRetryAttempts[video.id] = currentAttempt + 1
+                                
+                                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                                    // Clear the image cache for this URL
+                                    URLCache.shared.removeCachedResponse(
+                                        for: URLRequest(
+                                            url: URL(string: "https://image.mux.com/\(video.playback_id)/thumbnail.jpg?time=0&width=200&fit_mode=preserve&quality=75")!
+                                        )
                                     )
-                                )
+                                    // Force a view update to trigger a new image load
+                                    withAnimation {
+                                        // Using a temporary state update to force a view refresh
+                                        let tempAttempts = thumbnailRetryAttempts
+                                        thumbnailRetryAttempts = [:]
+                                        DispatchQueue.main.async {
+                                            thumbnailRetryAttempts = tempAttempts
+                                        }
+                                    }
+                                }
                             }
                         }
                 @unknown default:
@@ -317,7 +335,7 @@ struct SavedVideosTabView: View {
             .frame(width: (UIScreen.main.bounds.width - 36) / 2, height: 280)
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: 12))
-            .id(video.id) // Add stable identity for better list diffing
+            .id("\(video.id)_\(thumbnailRetryAttempts[video.id] ?? 0)") // Update id to force refresh on retry
             
             // Gradient overlay - stronger at bottom for better text contrast
             LinearGradient(
