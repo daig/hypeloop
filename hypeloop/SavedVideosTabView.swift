@@ -17,6 +17,10 @@ struct SavedVideosTabView: View {
     @State private var showingUsernameForVideo: String? = nil
     @State private var isLoading = true
     @State private var shimmerOffset: CGFloat = -200
+    @State private var currentPage = 0
+    @State private var hasMoreContent = true
+    @State private var isLoadingMore = false
+    private let videosPerPage = 20
     
     private let db = Firestore.firestore()
     
@@ -115,10 +119,12 @@ struct SavedVideosTabView: View {
         guard let userId = Auth.auth().currentUser?.uid else { return }
         
         isLoading = true
+        currentPage = 0
         do {
             let snapshot = try await db.collection("users").document(userId)
                 .collection("saved_videos")
                 .order(by: "saved_at", descending: true)
+                .limit(to: videosPerPage)
                 .getDocuments()
             
             let videos = snapshot.documents.compactMap { document -> VideoItem? in
@@ -134,6 +140,8 @@ struct SavedVideosTabView: View {
                 )
             }
             
+            hasMoreContent = !snapshot.documents.isEmpty && snapshot.documents.count == videosPerPage
+            
             await MainActor.run {
                 videoManager.savedVideos = videos
                 isLoading = false
@@ -141,6 +149,48 @@ struct SavedVideosTabView: View {
         } catch {
             print("Error loading saved videos: \(error.localizedDescription)")
             isLoading = false
+        }
+    }
+    
+    private func loadMoreContent() async {
+        guard let userId = Auth.auth().currentUser?.uid,
+              hasMoreContent && !isLoadingMore,
+              !videoManager.savedVideos.isEmpty else { return }
+        
+        isLoadingMore = true
+        
+        do {
+            let lastVideo = videoManager.savedVideos.last
+            let snapshot = try await db.collection("users").document(userId)
+                .collection("saved_videos")
+                .order(by: "saved_at", descending: true)
+                .start(after: [lastVideo?.created_at ?? 0])
+                .limit(to: videosPerPage)
+                .getDocuments()
+            
+            let newVideos = snapshot.documents.compactMap { document -> VideoItem? in
+                let data = document.data()
+                return VideoItem(
+                    id: data["id"] as? String ?? "",
+                    playback_id: data["playback_id"] as? String ?? "",
+                    creator: data["creator"] as? String ?? "",
+                    display_name: data["display_name"] as? String ?? "",
+                    description: data["description"] as? String ?? "",
+                    created_at: Double(data["created_at"] as? Int ?? 0),
+                    status: "ready"
+                )
+            }
+            
+            hasMoreContent = !snapshot.documents.isEmpty && snapshot.documents.count == videosPerPage
+            
+            await MainActor.run {
+                videoManager.savedVideos.append(contentsOf: newVideos)
+                currentPage += 1
+                isLoadingMore = false
+            }
+        } catch {
+            print("Error loading more videos: \(error.localizedDescription)")
+            isLoadingMore = false
         }
     }
     
@@ -199,9 +249,23 @@ struct SavedVideosTabView: View {
                     .transition(.opacity.combined(with: .offset(y: 20)))
                     .animation(
                         .spring(response: 0.5, dampingFraction: 0.8)
-                        .delay(Double(index) * 0.1),
+                        .delay(Double(index % videosPerPage) * 0.1),
                         value: videoManager.savedVideos
                     )
+                    .onAppear {
+                        if index == videoManager.savedVideos.count - 5 && hasMoreContent {
+                            Task {
+                                await loadMoreContent()
+                            }
+                        }
+                    }
+            }
+            
+            if isLoadingMore {
+                ForEach(0..<2) { _ in
+                    placeholderCell
+                        .transition(.opacity)
+                }
             }
         }
         .padding(12)
@@ -210,8 +274,9 @@ struct SavedVideosTabView: View {
     
     private func savedVideoCell(for video: VideoItem) -> some View {
         ZStack(alignment: .bottom) {
-            // Thumbnail
-            AsyncImage(url: URL(string: "https://image.mux.com/\(video.playback_id)/thumbnail.jpg?time=0&width=200&fit_mode=preserve&quality=75")) { phase in
+            // Thumbnail with optimized loading
+            AsyncImage(url: URL(string: "https://image.mux.com/\(video.playback_id)/thumbnail.jpg?time=0&width=200&fit_mode=preserve&quality=75"),
+                      transaction: Transaction(animation: .easeInOut(duration: 0.3))) { phase in
                 switch phase {
                 case .empty:
                     Rectangle()
@@ -224,7 +289,7 @@ struct SavedVideosTabView: View {
                     image
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .transition(.opacity.animation(.easeInOut(duration: 0.3)))
+                        .transition(.opacity)
                 case .failure(_):
                     Rectangle()
                         .fill(Color.gray.opacity(0.3))
@@ -252,6 +317,7 @@ struct SavedVideosTabView: View {
             .frame(width: (UIScreen.main.bounds.width - 36) / 2, height: 280)
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            .id(video.id) // Add stable identity for better list diffing
             
             // Gradient overlay - stronger at bottom for better text contrast
             LinearGradient(
