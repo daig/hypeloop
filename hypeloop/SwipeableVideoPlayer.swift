@@ -29,6 +29,7 @@ struct VideoCard: View, VideoPlaybackView, VideoInfoView {
     let isTopCard: Bool
     let isSwipingAway: Bool
     let video: VideoItem?
+    @Binding var isPlaying: Bool
     
     var body: some View {
         ZStack {
@@ -45,7 +46,9 @@ struct VideoCard: View, VideoPlaybackView, VideoInfoView {
                     Spacer()
                     VideoInfoOverlay(video: video)
                         .padding(.bottom, 80)
-                        .opacity(isSwipingAway ? 0 : 1)
+                        .opacity(isSwipingAway ? 0 : (isPlaying ? 0 : 1))
+                        .offset(y: isPlaying ? 20 : 0)
+                        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isPlaying)
                 }
             }
         }
@@ -114,6 +117,9 @@ struct SwipeableVideoPlayer: View {
     // Track the previous video for smooth transitions
     @State private var previousVideo: VideoItem?
     @State private var isTransitioning = false
+    
+    // Track video playback state
+    @State private var isPlaying = true
 
     // MARK: - Constants
     private let cardSpacing: CGFloat = 15
@@ -199,7 +205,8 @@ struct SwipeableVideoPlayer: View {
                                 cardSpacing: cardSpacing,
                                 isTopCard: false,
                                 isSwipingAway: false,
-                                video: prevVideo
+                                video: prevVideo,
+                                isPlaying: $isPlaying
                             )
                             .zIndex(isTransitioning ? 1 : 0)
                             .opacity(isTransitioning ? 1 : 0)
@@ -213,7 +220,8 @@ struct SwipeableVideoPlayer: View {
                                 cardSpacing: cardSpacing,
                                 isTopCard: false,
                                 isSwipingAway: false,
-                                video: videoManager.videoStack.count > 1 ? videoManager.videoStack[1] : nil
+                                video: videoManager.videoStack.count > 1 ? videoManager.videoStack[1] : nil,
+                                isPlaying: $isPlaying
                             )
                             .zIndex(isTransitioning ? 0 : 1)
                             .opacity(isTransitioning ? 0 : 1)
@@ -345,7 +353,8 @@ struct SwipeableVideoPlayer: View {
             cardSpacing: cardSpacing,
             isTopCard: true,
             isSwipingAway: isSwipingAway,
-            video: videoManager.currentVideo
+            video: videoManager.currentVideo,
+            isPlaying: $isPlaying
         )
         .withTapGestures(
             onTap: handleVideoTap,
@@ -355,7 +364,7 @@ struct SwipeableVideoPlayer: View {
     }
 
     private func handleVideoTap() {
-        let isPlaying = videoManager.currentPlayer.timeControlStatus == .playing
+        let wasPlaying = videoManager.currentPlayer.timeControlStatus == .playing
         
         withAnimation(.none) {
             showPlayIndicator = false
@@ -363,21 +372,20 @@ struct SwipeableVideoPlayer: View {
             showRestartIndicator = false
         }
         
-        if isPlaying {
+        // Update isPlaying state immediately
+        isPlaying.toggle()
+        
+        if wasPlaying {
             withAnimation { showPauseIndicator = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 withAnimation { showPauseIndicator = false }
             }
+            videoManager.currentPlayer.pause()
         } else {
             withAnimation { showPlayIndicator = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 withAnimation { showPlayIndicator = false }
             }
-        }
-        
-        if isPlaying {
-            videoManager.currentPlayer.pause()
-        } else {
             videoManager.currentPlayer.play()
         }
     }
