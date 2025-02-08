@@ -211,13 +211,43 @@ struct SavedVideosTabView: View {
     private func savedVideoCell(for video: VideoItem) -> some View {
         ZStack(alignment: .bottom) {
             // Thumbnail
-            AsyncImage(url: URL(string: "https://image.mux.com/\(video.playback_id)/thumbnail.jpg?time=0&width=200&fit_mode=preserve&quality=75")) { image in
-                image
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } placeholder: {
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
+            AsyncImage(url: URL(string: "https://image.mux.com/\(video.playback_id)/thumbnail.jpg?time=0&width=200&fit_mode=preserve&quality=75")) { phase in
+                switch phase {
+                case .empty:
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .overlay(
+                            ProgressView()
+                                .tint(.white.opacity(0.7))
+                        )
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .transition(.opacity.animation(.easeInOut(duration: 0.3)))
+                case .failure(_):
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .overlay(
+                            Image(systemName: "photo")
+                                .foregroundColor(.white.opacity(0.7))
+                                .font(.system(size: 24))
+                        )
+                        .onAppear {
+                            // Force a reload of the image after a short delay
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                // Clear the image cache for this URL
+                                URLCache.shared.removeCachedResponse(
+                                    for: URLRequest(
+                                        url: URL(string: "https://image.mux.com/\(video.playback_id)/thumbnail.jpg?time=0&width=200&fit_mode=preserve&quality=75")!
+                                    )
+                                )
+                            }
+                        }
+                @unknown default:
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                }
             }
             .frame(width: (UIScreen.main.bounds.width - 36) / 2, height: 280)
             .clipped()
