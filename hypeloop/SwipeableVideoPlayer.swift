@@ -110,6 +110,10 @@ struct SwipeableVideoPlayer: View {
     
     // Track if a card is being swiped away
     @State private var isSwipingAway = false
+    
+    // Track the previous video for smooth transitions
+    @State private var previousVideo: VideoItem?
+    @State private var isTransitioning = false
 
     // MARK: - Constants
     private let cardSpacing: CGFloat = 15
@@ -151,6 +155,10 @@ struct SwipeableVideoPlayer: View {
     // MARK: - Swipe Handler
     private func handleSwipeAway(direction: SwipeDirection) {
         isSwipingAway = true
+        isTransitioning = true
+        
+        // Store the current video before transition
+        previousVideo = videoManager.currentVideo
         
         // Delay the actual action to match the swipe animation
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -165,6 +173,11 @@ struct SwipeableVideoPlayer: View {
                 videoManager.handleDownSwipe()
             }
             isSwipingAway = false
+            
+            // Reset transition state after a delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                isTransitioning = false
+            }
         }
     }
 
@@ -177,10 +190,40 @@ struct SwipeableVideoPlayer: View {
                 } else {
                     ZStack {
                         playPauseRestartIndicators
-                        bottomCard(geometry: geometry)
+                        
+                        // Previous card (becomes background when transitioning)
+                        if let prevVideo = previousVideo {
+                            VideoCard(
+                                player: videoManager.nextPlayer,
+                                geometry: geometry,
+                                cardSpacing: cardSpacing,
+                                isTopCard: false,
+                                isSwipingAway: false,
+                                video: prevVideo
+                            )
+                            .zIndex(isTransitioning ? 1 : 0)
+                            .opacity(isTransitioning ? 1 : 0)
+                        }
+                        
+                        // Current background card
+                        if videoManager.videoStack.count > 1 {
+                            VideoCard(
+                                player: videoManager.nextPlayer,
+                                geometry: geometry,
+                                cardSpacing: cardSpacing,
+                                isTopCard: false,
+                                isSwipingAway: false,
+                                video: videoManager.videoStack.count > 1 ? videoManager.videoStack[1] : nil
+                            )
+                            .zIndex(isTransitioning ? 0 : 1)
+                            .opacity(isTransitioning ? 0 : 1)
+                        }
+                        
+                        // Top card (current video)
                         SwipeableCard(configuration: swipeConfiguration) {
                             topCardContent(geometry: geometry)
-                        }.zIndex(2)
+                        }
+                        .zIndex(2)
                         
                         // Floating mute button
                         VStack {
@@ -294,21 +337,6 @@ struct SwipeableVideoPlayer: View {
         .background(Color.black)
     }
     
-    /// Returns the bottom card showing the next video.
-    @ViewBuilder
-    private func bottomCard(geometry: GeometryProxy) -> some View {
-        if videoManager.videoStack.count > 1 {
-            VideoCard(
-                player: videoManager.nextPlayer,
-                geometry: geometry,
-                cardSpacing: cardSpacing,
-                isTopCard: false,
-                isSwipingAway: false,
-                video: nil
-            )
-        }
-    }
-
     /// Returns the content for the top card.
     private func topCardContent(geometry: GeometryProxy) -> some View {
         VideoCard(

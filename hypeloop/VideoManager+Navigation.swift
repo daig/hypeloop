@@ -33,29 +33,34 @@ extension VideoManager {
     /// - Parameter autoPlay: Whether the new current player should start playing immediately.
     func swapToNextVideo(autoPlay: Bool = true) {
         if let nextVideo = videoStack.first {
-            // Swap players and loopers
+            // Keep the current player playing during transition
             let oldPlayer = currentPlayer
             let oldLooper = currentLooper
             
+            // Set up the next player first
             currentPlayer = nextPlayer
             currentLooper = nextLooper
             
-            nextPlayer = oldPlayer
-            nextLooper = oldLooper
-            
             // Set volumes according to mute state
             currentPlayer.volume = isMuted ? 0 : 1
-            nextPlayer.volume = 0
             
+            // Update the current video
             currentVideo = nextVideo
             
             if autoPlay {
                 currentPlayer.play()
             }
             
-            // Preload the next video after the current one
-            if let followingVideo = videoStack.dropFirst().first {
-                preloadVideo(followingVideo)
+            // After a short delay, set up the old player as the next player
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.nextPlayer = oldPlayer
+                self.nextLooper = oldLooper
+                self.nextPlayer.volume = 0
+                
+                // Preload the next video after the current one
+                if let followingVideo = self.videoStack.dropFirst().first {
+                    self.preloadVideo(followingVideo)
+                }
             }
         }
     }
