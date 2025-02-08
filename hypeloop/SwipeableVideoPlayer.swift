@@ -2,6 +2,18 @@ import SwiftUI
 import AVKit
 import UIKit
 
+// Extension to support conditional modifiers
+extension View {
+    @ViewBuilder
+    func `if`<Transform: View>(_ condition: Bool, transform: (Self) -> Transform) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
+    }
+}
+
 struct SwipeableVideoPlayer: View {
     // MARK: - Observed & State Properties
     @ObservedObject var videoManager: VideoManager
@@ -200,62 +212,88 @@ struct SwipeableVideoPlayer: View {
         .background(Color.black)
     }
     
-    /// Returns the bottom card showing the next video.
-    @ViewBuilder
-    private func bottomCard(geometry: GeometryProxy) -> some View {
-        if videoManager.videoStack.count > 1 {
+    /// A generic video card view that can be used for both top and bottom cards
+    private struct VideoCard: View {
+        let player: AVQueuePlayer
+        let geometry: GeometryProxy
+        let cardSpacing: CGFloat
+        let isTopCard: Bool
+        let isSwipingAway: Bool
+        let onTap: (() -> Void)?
+        let onDoubleTap: (() -> Void)?
+        let video: VideoItem?
+        
+        var body: some View {
             ZStack {
-                AutoplayVideoPlayer(player: videoManager.nextPlayer)
+                if isTopCard {
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color.black.opacity(0))
+                }
+                
+                // Video Player
+                AutoplayVideoPlayer(player: player)
                     .aspectRatio(9/16, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                     .padding(.top, 60)
+                    .opacity(isSwipingAway ? 0 : 1)
+                    .if(isTopCard && onTap != nil && onDoubleTap != nil) { view in
+                        view.gesture(
+                            SimultaneousGesture(
+                                TapGesture()
+                                    .onEnded { _ in onTap?() },
+                                TapGesture(count: 2)
+                                    .onEnded { _ in onDoubleTap?() }
+                            )
+                        )
+                    }
+                
+                // Overlay for top card only
+                if isTopCard, let video = video {
+                    VStack {
+                        Spacer()
+                        VideoInfoOverlay(video: video)
+                            .padding(.bottom, 80)
+                            .opacity(isSwipingAway ? 0 : 1)
+                    }
+                }
             }
             .frame(
                 width: geometry.size.width - cardSpacing * 2,
                 height: geometry.size.height - cardSpacing * 2
             )
-            .zIndex(1)
+            .zIndex(isTopCard ? 2 : 1)
         }
     }
-    
+
+    /// Returns the bottom card showing the next video.
+    @ViewBuilder
+    private func bottomCard(geometry: GeometryProxy) -> some View {
+        if videoManager.videoStack.count > 1 {
+            VideoCard(
+                player: videoManager.nextPlayer,
+                geometry: geometry,
+                cardSpacing: cardSpacing,
+                isTopCard: false,
+                isSwipingAway: false,
+                onTap: nil,
+                onDoubleTap: nil,
+                video: nil
+            )
+        }
+    }
+
     /// Returns the content for the top card.
     private func topCardContent(geometry: GeometryProxy) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color.black.opacity(0))
-            
-            // Video Player
-            AutoplayVideoPlayer(player: videoManager.currentPlayer)
-                .aspectRatio(9/16, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 20))
-                .padding(.top, 60)
-                .opacity(isSwipingAway ? 0 : 1) // Hide the video when swiping away
-                .gesture(
-                    SimultaneousGesture(
-                        TapGesture()
-                            .onEnded { _ in
-                                handleVideoTap()
-                            },
-                        TapGesture(count: 2)
-                            .onEnded { _ in
-                                handleVideoDoubleTap()
-                            }
-                    )
-                )
-            
-            // Overlay: author and description
-            VStack {
-                Spacer()
-                if let currentVideo = videoManager.currentVideo {
-                    VideoInfoOverlay(video: currentVideo)
-                        .padding(.bottom, 80)
-                        .opacity(isSwipingAway ? 0 : 1) // Hide the overlay when swiping away
-                }
-            }
-        }
-        .frame(width: geometry.size.width - cardSpacing * 2, height: geometry.size.height - cardSpacing * 2)
-        .cornerRadius(20)
-        .shadow(radius: 5)
+        VideoCard(
+            player: videoManager.currentPlayer,
+            geometry: geometry,
+            cardSpacing: cardSpacing,
+            isTopCard: true,
+            isSwipingAway: isSwipingAway,
+            onTap: handleVideoTap,
+            onDoubleTap: handleVideoDoubleTap,
+            video: videoManager.currentVideo
+        )
     }
 
     private func handleVideoTap() {
