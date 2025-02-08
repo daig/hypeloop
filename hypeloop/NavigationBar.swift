@@ -1,6 +1,33 @@
 import SwiftUI
 import FirebaseAuth
 
+struct HomeIcon: View {
+    let color: Color
+    
+    var body: some View {
+        ZStack {
+            // Slightly offset "card" background
+            RoundedRectangle(cornerRadius: 4)
+                .offset(x: -4, y: -4)
+                .frame(width: 20, height: 28)
+                .foregroundColor(color.opacity(0.2))
+            
+            // Top card
+            RoundedRectangle(cornerRadius: 4)
+                .frame(width: 20, height: 28)
+                .foregroundColor(color.opacity(0.4))
+            
+            // Play triangle
+            Image(systemName: "play.fill")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 10, height: 10)
+                .foregroundColor(color)
+        }
+        .frame(width: 28, height: 28)
+    }
+}
+
 struct NavigationBar: View {
     @Binding var selectedTab: Int
     @Binding var isLoggedIn: Bool
@@ -24,9 +51,8 @@ struct NavigationBar: View {
             Spacer()
             HStack(spacing: 60) {
                 // Home tab with long-press menu
-                NavigationButton(iconName: "house.fill")
+                HomeIcon(color: selectedTab == 0 ? .white : .gray)
                     .onTapGesture { selectedTab = 0 }
-                    .foregroundColor(selectedTab == 0 ? .white : .gray)
                     .contextMenu {
                         logoutContextMenu()
                     }
