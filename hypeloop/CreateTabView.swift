@@ -81,10 +81,6 @@ struct CreateTabView: View {
                     }
                     
                     Spacer()
-                    
-                    // Add debug button at the bottom
-                    clearBloomFilterButton
-                        .padding(.bottom)
                 }
                 .padding(.top, 20)
             }
@@ -180,26 +176,6 @@ struct CreateTabView: View {
         .cornerRadius(8)
         .padding(.horizontal)
         .disabled(selectedVideoURL == nil || description.isEmpty || isUploading || isOptimizing)
-    }
-    
-    // Debug button to clear bloom filter
-    private var clearBloomFilterButton: some View {
-        Button(action: {
-            Task {
-                await clearBloomFilter()
-            }
-        }) {
-            HStack {
-                Image(systemName: "arrow.clockwise.circle")
-                Text("Reset Video Feed")
-            }
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(Color.red.opacity(0.3))
-            .cornerRadius(8)
-            .foregroundColor(.white)
-        }
-        .padding(.horizontal)
     }
     
     // MARK: - Helper Functions
@@ -402,19 +378,6 @@ struct CreateTabView: View {
             ])
         } catch {
             print("Error updating video status: \(error.localizedDescription)")
-        }
-    }
-    
-    private func clearBloomFilter() async {
-        guard let userId = Auth.auth().currentUser?.uid else { return }
-        
-        do {
-            try await db.collection("bloom_filters").document(userId).delete()
-            alertMessage = "Bloom filter cleared successfully. Pull to refresh the video feed!"
-            showAlert = true
-        } catch {
-            alertMessage = "Failed to clear bloom filter: \(error.localizedDescription)"
-            showAlert = true
         }
     }
 }

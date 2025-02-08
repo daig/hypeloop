@@ -76,4 +76,12 @@ class VideoManager: ObservableObject {
         currentPlayer.pause()
         nextPlayer.pause()
     }
+    
+    @MainActor
+    func reloadBloomFilterAndVideos() async {
+        print("📹 Reloading bloom filter and videos")
+        await seenVideosFilter.reloadFromFirebase()
+        videoStack = []
+        await loadVideos(initial: true)
+    }
 }

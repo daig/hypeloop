@@ -17,6 +17,13 @@ class BloomFilterStore: ObservableObject {
         }
     }
     
+    @MainActor
+    func reloadFromFirebase() async {
+        isLoaded = false
+        bloomFilter = BloomFilter()
+        await loadFromFirebase()
+    }
+    
     func add(_ element: String) {
         bloomFilter.add(element)
         saveToFirebase()
