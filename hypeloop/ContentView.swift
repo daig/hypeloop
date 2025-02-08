@@ -12,7 +12,10 @@ struct ContentView: View {
     @State private var videoManager: VideoManager?
     @State private var selectedTab = 0
     @Binding var isLoggedIn: Bool
-    
+
+    // Add a state to trigger the shake alert.
+    @State private var showShakeAlert = false
+
     var body: some View {
         Group {
             if let videoManager = videoManager {
@@ -43,7 +46,15 @@ struct ContentView: View {
                     }
             }
         }
+        // Attach an onReceive that listens for shake notifications.
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.deviceDidShakeNotification)) { _ in
+            showShakeAlert = true
+        }
+        // Display an alert popup when a shake occurs.
+        .alert("Shake Detected", isPresented: $showShakeAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("You shook the device!")
+        }
     }
 }
-
-

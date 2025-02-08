@@ -11,6 +11,9 @@ import FirebaseAuth
 
 @main
 struct hypeloopApp: App {
+    // Inject our custom app delegate.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     @StateObject private var authService = AuthService.shared
     
     init() {
