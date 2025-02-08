@@ -209,12 +209,6 @@ struct SwipeableVideoPlayer: View {
                     .aspectRatio(9/16, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                     .padding(.top, 60)
-                if let nextVideo = videoManager.videoStack.dropFirst().first {
-                    VStack {
-                        Spacer()
-                        VideoInfoOverlay(video: nextVideo)
-                    }
-                }
             }
             .frame(
                 width: geometry.size.width - cardSpacing * 2,
