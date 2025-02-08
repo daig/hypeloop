@@ -146,7 +146,7 @@ struct SavedVideosTabView: View {
     }
     
     private func savedVideoCell(for video: VideoItem) -> some View {
-        ZStack(alignment: .bottomLeading) {
+        ZStack(alignment: .bottom) {
             // Thumbnail
             AsyncImage(url: URL(string: "https://image.mux.com/\(video.playback_id)/thumbnail.jpg?time=0&width=200&fit_mode=preserve&quality=75")) { image in
                 image
@@ -160,29 +160,80 @@ struct SavedVideosTabView: View {
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: 12))
             
-            // Gradient overlay
+            // Gradient overlay - stronger at bottom for better text contrast
             LinearGradient(
-                gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
+                gradient: Gradient(stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black.opacity(0.5), location: 0.5),
+                    .init(color: .black.opacity(0.9), location: 1)
+                ]),
                 startPoint: .top,
                 endPoint: .bottom
             )
             
-            // Text overlay
-            VStack(alignment: .leading, spacing: 12) {
-                // Creator info section
-                ZStack {
-                    HStack(alignment: .top, spacing: 8) {
-                        // Creator icon with floating username
-                        ZStack(alignment: .top) {
+            // Content overlay
+            VStack(alignment: .leading, spacing: 0) {
+                Spacer(minLength: 0)
+                
+                if showingUsernameForVideo == video.id {
+                    // Expanded content when tapped
+                    VStack(alignment: .leading, spacing: 12) {
+                        // Description with scroll for long text
+                        ScrollView(showsIndicators: false) {
+                            Text(video.description)
+                                .font(.system(size: 14, weight: .regular))
+                                .lineSpacing(4)
+                                .foregroundColor(.white.opacity(0.9))
+                                .multilineTextAlignment(.leading)
+                                .padding(.bottom, 8)
+                                .padding(.top, 8) // Add padding for top fade
+                        }
+                        .frame(maxHeight: 160)
+                        .mask(
+                            VStack(spacing: 0) {
+                                // Top fade - smoother transition
+                                LinearGradient(
+                                    gradient: Gradient(stops: [
+                                        .init(color: .clear, location: 0),
+                                        .init(color: .black.opacity(0.6), location: 0.2),
+                                        .init(color: .black, location: 0.4)
+                                    ]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                                .frame(height: 12)
+                                
+                                // Middle solid section
+                                Rectangle()
+                                
+                                // Bottom fade - even softer transition
+                                LinearGradient(
+                                    gradient: Gradient(stops: [
+                                        .init(color: .black, location: 0),
+                                        .init(color: .black, location: 0.2),
+                                        .init(color: .black.opacity(0.6), location: 0.4),
+                                        .init(color: .clear, location: 1)
+                                    ]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                                .frame(height: 24)
+                            }
+                        )
+                        
+                        // Creator info
+                        HStack(spacing: 8) {
+                            // Creator icon
                             if let iconData = creatorIcons[video.creator] {
                                 AnimatedGIFView(gifData: iconData)
-                                    .frame(width: 32, height: 32)
+                                    .frame(width: 24, height: 24)
                                     .clipShape(Circle())
-                                    .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1))
+                                    .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 1))
                             } else {
                                 Circle()
                                     .fill(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
-                                    .frame(width: 32, height: 32)
+                                    .frame(width: 24, height: 24)
+                                    .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 1))
                                     .onAppear {
                                         Task {
                                             await loadCreatorIcon(for: video.creator)
@@ -190,34 +241,28 @@ struct SavedVideosTabView: View {
                                     }
                             }
                             
-                            if showingUsernameForVideo == video.id {
-                                Text("@\(video.display_name)")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(
-                                        Capsule()
-                                            .fill(Color.black.opacity(0.7))
-                                            .overlay(
-                                                Capsule()
-                                                    .strokeBorder(Color.white.opacity(0.2), lineWidth: 0.5)
-                                            )
-                                    )
-                                    .offset(y: -24)  // Move up by a fixed amount
-                                    .transition(.scale(scale: 0.8).combined(with: .opacity))
-                            }
+                            Text("@\(video.display_name)")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.white.opacity(0.8))
                         }
-                        
-                        // Description
-                        Text(video.description)
-                            .font(.subheadline)
-                            .lineLimit(2)
                     }
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .offset(y: 20)),
+                            removal: .opacity.combined(with: .offset(y: 20))
+                        )
+                    )
+                    .padding(.bottom, 12)
+                } else {
+                    // Preview text when not tapped
+                    Text(video.description)
+                        .font(.system(size: 13, weight: .regular))
+                        .lineLimit(2)
+                        .foregroundColor(.white.opacity(0.8))
+                        .padding(.bottom, 12)
                 }
                 
-                // Download button
+                // Download button - always visible
                 if let progress = downloadProgress[video.id], progress < 1.0 {
                     downloadProgressView(for: video, progress: progress)
                 } else {
@@ -225,9 +270,10 @@ struct SavedVideosTabView: View {
                 }
             }
             .padding(12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
         .frame(width: (UIScreen.main.bounds.width - 36) / 2, height: 280)
-        .contentShape(Rectangle())  // Makes the entire card tappable
+        .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 showingUsernameForVideo = showingUsernameForVideo == video.id ? nil : video.id
