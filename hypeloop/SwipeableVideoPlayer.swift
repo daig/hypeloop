@@ -13,6 +13,9 @@ struct SwipeableVideoPlayer: View {
     
     // Refresh state for "caught up" view
     @State private var isRefreshing = false
+    
+    // Track if a card is being swiped away
+    @State private var isSwipingAway = false
 
     // MARK: - Constants
     private let cardSpacing: CGFloat = 15
@@ -23,27 +26,52 @@ struct SwipeableVideoPlayer: View {
                 icon: "hand.thumbsdown.fill",
                 color: .red,
                 rotationDegrees: 0,
-                action: videoManager.handleLeftSwipe
+                action: { handleSwipeAway(direction: .left) }
             ),
             rightAction: SwipeAction(
                 icon: "hand.thumbsup.fill",
                 color: .green,
                 rotationDegrees: 0,
-                action: videoManager.handleRightSwipe
+                action: { handleSwipeAway(direction: .right) }
             ),
             upAction: SwipeAction(
                 icon: "paperplane.fill",
                 color: .blue,
                 rotationDegrees: -45,
-                action: videoManager.handleUpSwipe
+                action: { handleSwipeAway(direction: .up) }
             ),
             downAction: SwipeAction(
                 icon: "square.and.arrow.down.fill",
                 color: .purple,
                 rotationDegrees: 0,
-                action: videoManager.handleDownSwipe
+                action: { handleSwipeAway(direction: .down) }
             )
         )
+    }
+    
+    // MARK: - Swipe Direction Enum
+    private enum SwipeDirection {
+        case left, right, up, down
+    }
+    
+    // MARK: - Swipe Handler
+    private func handleSwipeAway(direction: SwipeDirection) {
+        isSwipingAway = true
+        
+        // Delay the actual action to match the swipe animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            switch direction {
+            case .left:
+                videoManager.handleLeftSwipe()
+            case .right:
+                videoManager.handleRightSwipe()
+            case .up:
+                videoManager.handleUpSwipe()
+            case .down:
+                videoManager.handleDownSwipe()
+            }
+            isSwipingAway = false
+        }
     }
 
     // MARK: - Body
@@ -180,14 +208,11 @@ struct SwipeableVideoPlayer: View {
                 AutoplayVideoPlayer(player: videoManager.nextPlayer)
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                     .padding(.top, 60)
-                VStack {
-                    Spacer()
-                    LinearGradient(
-                        gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
-                        startPoint: .center,
-                        endPoint: .bottom
-                    )
-                    .frame(height: geometry.size.height / 2)
+                if let nextVideo = videoManager.videoStack.dropFirst().first {
+                    VStack {
+                        Spacer()
+                        VideoInfoOverlay(video: nextVideo)
+                    }
                 }
             }
             .frame(
@@ -208,6 +233,7 @@ struct SwipeableVideoPlayer: View {
             AutoplayVideoPlayer(player: videoManager.currentPlayer)
                 .clipShape(RoundedRectangle(cornerRadius: 20))
                 .padding(.top, 60)
+                .opacity(isSwipingAway ? 0 : 1) // Hide the video when swiping away
                 .gesture(
                     SimultaneousGesture(
                         TapGesture()
@@ -224,20 +250,11 @@ struct SwipeableVideoPlayer: View {
             // Overlay: author and description
             VStack {
                 Spacer()
-                ZStack(alignment: .bottom) {
-                    LinearGradient(
-                        gradient: Gradient(colors: [.clear, .black.opacity(0.8)]),
-                        startPoint: .center,
-                        endPoint: .bottom
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                    
-                    if let currentVideo = videoManager.currentVideo {
-                        VideoInfoOverlay(video: currentVideo)
-                            .padding(.bottom, 80)
-                    }
+                if let currentVideo = videoManager.currentVideo {
+                    VideoInfoOverlay(video: currentVideo)
+                        .padding(.bottom, 80)
+                        .opacity(isSwipingAway ? 0 : 1) // Hide the overlay when swiping away
                 }
-                .frame(height: geometry.size.height / 2)
             }
         }
         .frame(width: geometry.size.width - cardSpacing * 2, height: geometry.size.height - cardSpacing * 2)
