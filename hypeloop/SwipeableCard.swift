@@ -147,6 +147,7 @@ struct SwipeableCard<Content: View>: View {
                 }
                 withAnimation(.easeOut(duration: 0.2)) {
                     showUpIndicator = false
+                } completion: {
                     upIndicatorOffset = 0
                 }
             }
@@ -162,6 +163,7 @@ struct SwipeableCard<Content: View>: View {
                 }
                 withAnimation(.easeOut(duration: 0.2)) {
                     showDownIndicator = false
+                } completion: {
                     downIndicatorOffset = 0
                 }
             }
