@@ -40,7 +40,7 @@ extension VideoManager {
     /// Fetches and filters videos using a provided async function
     /// - Parameter fetchFunction: An async function that returns an array of VideoItems
     /// - Returns: A tuple containing filtered videos and whether all videos were seen
-    private func fetchAndFilterVideos(using fetchFunction: () async throws -> [VideoItem]) async throws -> (videos: [VideoItem], allSeen: Bool) {
+    private func fetchUnseenVideos(using fetchFunction: () async throws -> [VideoItem]) async throws -> [VideoItem] {
         let startTime = Date()
         while !seenVideosFilter.isLoaded {
             print("⏳ Waiting for bloom filter... elapsed: \(Int(-startTime.timeIntervalSinceNow))s")
@@ -50,13 +50,11 @@ extension VideoManager {
         let newVideos = try await fetchFunction()
         print("✅ Received \(newVideos.count) ready videos")
         
-        // Filter out "seen" videos
         let unseenVideos = newVideos.filter { video in !self.seenVideosFilter.mightContain(video.id) }
         
         print("📹 Filtered videos: total \(newVideos.count), unseen \(unseenVideos.count)")
-        let allVideosSeen = unseenVideos.isEmpty && !newVideos.isEmpty
         
-        return (unseenVideos, allVideosSeen)
+        return unseenVideos
     }
     
     /// Loads videos from Firestore, filtering out those already seen.
@@ -71,7 +69,7 @@ extension VideoManager {
             isLoading = true
             
             do {
-                let (unseenVideos, areAllVideosSeen) = try await fetchAndFilterVideos { 
+                let unseenVideos = try await fetchUnseenVideos { 
                     try await fetchReadyVideosFromFirestore() 
                 }
                 
