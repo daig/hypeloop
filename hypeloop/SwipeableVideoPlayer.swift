@@ -304,7 +304,7 @@ struct SwipeableVideoPlayer: View {
             Button(action: {
                 isRefreshing = true
                 Task {
-                    await videoManager.fetchVideos(initial: true)
+                    await videoManager.loadVideos(initial: true)
                     try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
                     await MainActor.run {
                         isRefreshing = false

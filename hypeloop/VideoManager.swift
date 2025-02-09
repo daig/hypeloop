@@ -19,7 +19,6 @@ class VideoManager: ObservableObject {
     @Published var itemsToShare: [Any]?
     @Published internal(set) var savedVideos: [VideoItem] = []
     @Published internal var isLoading = false
-    @Published internal(set) var allVideosSeen = false
     @Published var isMuted = false
     
     // Player loopers for smooth video looping
@@ -59,7 +58,7 @@ class VideoManager: ObservableObject {
         
         // Perform the initial video load
         print("📹 Starting initial video fetch")
-        await fetchVideos(initial: true)
+        await loadVideos(initial: true)
         
         print("📹 VideoManager initialization complete")
     }
@@ -82,6 +81,6 @@ class VideoManager: ObservableObject {
         print("📹 Reloading bloom filter and videos")
         await seenVideosFilter.reloadFromFirebase()
         videoStack = []
-        await fetchVideos(initial: true)
+        await loadVideos(initial: true)
     }
 }

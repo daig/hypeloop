@@ -24,7 +24,7 @@ extension VideoManager {
         }
         
         // Otherwise, ensure we have enough in the stack
-        if videoStack.count < 3 { fetchVideos() }
+        if videoStack.count < 3 { loadVideos() }
     }
     
     /// Swaps to the preloaded `nextPlayer` and sets its video as the current video.
