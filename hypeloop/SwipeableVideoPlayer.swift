@@ -147,8 +147,7 @@ struct SwipeableVideoPlayer: View {
             
             await MainActor.run {
                 switch direction {
-                    case .left:  videoManager.handleLeftSwipe()
-                    case .right: videoManager.handleRightSwipe()
+                    case .left, .right: videoManager.handleHorizontalSwipe()
                     case .up:    videoManager.handleUpSwipe()
                     case .down:  videoManager.handleDownSwipe()
                 }
@@ -305,7 +304,7 @@ struct SwipeableVideoPlayer: View {
             Button(action: {
                 isRefreshing = true
                 Task {
-                    await videoManager.loadVideos(initial: true)
+                    await videoManager.fetchVideos(initial: true)
                     try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
                     await MainActor.run {
                         isRefreshing = false

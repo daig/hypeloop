@@ -58,8 +58,8 @@ class VideoManager: ObservableObject {
         print("📹 Bloom filter loaded after \(Int(-startTime.timeIntervalSinceNow))s")
         
         // Perform the initial video load
-        print("📹 Starting initial video load")
-        await loadVideos(initial: true)
+        print("📹 Starting initial video fetch")
+        await fetchVideos(initial: true)
         
         print("📹 VideoManager initialization complete")
     }
@@ -82,6 +82,6 @@ class VideoManager: ObservableObject {
         print("📹 Reloading bloom filter and videos")
         await seenVideosFilter.reloadFromFirebase()
         videoStack = []
-        await loadVideos(initial: true)
+        await fetchVideos(initial: true)
     }
 }

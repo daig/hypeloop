@@ -24,9 +24,7 @@ extension VideoManager {
         }
         
         // Otherwise, ensure we have enough in the stack
-        if videoStack.count < 3 {
-            loadVideos()
-        }
+        if videoStack.count < 3 { fetchVideos() }
     }
     
     /// Swaps to the preloaded `nextPlayer` and sets its video as the current video.
@@ -66,9 +64,10 @@ extension VideoManager {
     }
     
     /// Moves to the next video by preparing the next and swapping players.
-    func moveToNextVideo() {
+    /// - Parameter autoPlay: Whether the new current player should start playing immediately.
+    func moveToNextVideo(autoPlay: Bool = true) {
         prepareNextVideo()
-        swapToNextVideo()
+        swapToNextVideo(autoPlay: autoPlay)
     }
     
     /// Unloads all videos and stops playback.

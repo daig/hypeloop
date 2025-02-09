@@ -12,11 +12,8 @@ extension VideoManager {
     
     // MARK: - Swipe Handlers
     
-    func handleRightSwipe() {
-        moveToNextVideo()
-    }
-    
-    func handleLeftSwipe() {
+    /// Handles both left and right swipes
+    func handleHorizontalSwipe() {
         moveToNextVideo()
     }
     
@@ -27,8 +24,7 @@ extension VideoManager {
            let currentVideo = videoStack.first {
             let shareText = "\(urlAsset.url)\n\n\(currentVideo.description)"
             itemsToShare = [shareText]
-            prepareNextVideo()
-            swapToNextVideo(autoPlay: false)
+            moveToNextVideo(autoPlay: false)
             isShowingShareSheet = true
         }
     }

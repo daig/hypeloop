@@ -11,7 +11,7 @@ extension VideoManager {
     
     /// Loads videos from Firestore, filtering out those already seen.
     /// - Parameter initial: Indicates if this is the first load after initialization.
-    func loadVideos(initial: Bool = false) {
+    func fetchVideos(initial: Bool = false) {
         Task { @MainActor in
             if !initial && !videoStack.isEmpty {
                 print("📹 Skipping load – stack not empty")
@@ -55,17 +55,12 @@ extension VideoManager {
                 print("✅ Received \(newVideos.count) ready videos")
                 
                 // Filter out "seen" videos
-                var seenCount = 0
                 let unseenVideos = newVideos.filter { video in
-                    let isSeen = self.seenVideosFilter.mightContain(video.id)
-                    if isSeen { seenCount += 1 }
-                    return !isSeen
-                }
+                    !self.seenVideosFilter.mightContain(video.id) }
                 
-                print("📹 Filtered videos: total \(newVideos.count), seen \(seenCount), unseen \(unseenVideos.count)")
+                print("📹 Filtered videos: total \(newVideos.count), unseen \(unseenVideos.count)")
                 allVideosSeen = unseenVideos.isEmpty && !newVideos.isEmpty
                 
-                // Append unseen videos to stack
                 videoStack.append(contentsOf: unseenVideos)
                 
                 // If this was the first load and there's at least one video, set up the first video
