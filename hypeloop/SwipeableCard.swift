@@ -140,12 +140,13 @@ struct SwipeableCard<Content: View>: View {
             withAnimation(.easeOut(duration: 0.3)) {
                 offset.height = -500
                 upIndicatorOffset = -200
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            } completion: {
                 upAction.action()
-                withAnimation(.none) { offset = .zero }
-                withAnimation(.easeOut(duration: 0.2)) { showUpIndicator = false }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                withAnimation(.none) {
+                    offset = .zero
+                }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    showUpIndicator = false
                     upIndicatorOffset = 0
                 }
             }
@@ -154,12 +155,13 @@ struct SwipeableCard<Content: View>: View {
             withAnimation(.easeOut(duration: 0.3)) {
                 offset.height = 500
                 downIndicatorOffset = 200
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            } completion: {
                 downAction.action()
-                withAnimation(.none) { offset = .zero }
-                withAnimation(.easeOut(duration: 0.2)) { showDownIndicator = false }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                withAnimation(.none) {
+                    offset = .zero
+                }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    showDownIndicator = false
                     downIndicatorOffset = 0
                 }
             }
@@ -181,8 +183,7 @@ struct SwipeableCard<Content: View>: View {
         withAnimation(.easeOut(duration: 0.3)) {
             offset.width = direction * 500
             offset.height = dragOffset.height
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        } completion: {
             action()
             withAnimation(.none) {
                 offset = .zero
