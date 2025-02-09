@@ -44,23 +44,20 @@ struct ContentView: View {
             if let videoManager = videoManager {
                 // Main content when VideoManager is loaded
                 ZStack {
-                    // Content based on selected tab
                     Group {
-                        if selectedTab == 0 {
+                        switch selectedTab {
+                        case 0:
                             HomeTabView(videoManager: videoManager)
-                        } else if selectedTab == 1 {
+                        case 1:
                             SavedVideosTabView(videoManager: videoManager)
-                        } else {
+                        default:
                             CreateTabView()
                         }
-                    }
-                    .animation(.easeInOut, value: selectedTab)
+                    } .animation(.easeInOut, value: selectedTab)
                     
-                    // Navigation Bar Overlay
                     NavigationBar(selectedTab: $selectedTab, isLoggedIn: $isLoggedIn)
                 }
             } else {
-                // Loading state
                 ProgressView("Loading...")
                     .task { self.videoManager = await VideoManager() }
             }
