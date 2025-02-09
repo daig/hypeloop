@@ -49,6 +49,8 @@ struct CreateTabView: View {
     @State private var alertMessage = ""
     @State private var uploadComplete = false
     @State private var currentUploadId: String? = nil
+    @State private var isLoadingVideo = false
+    @FocusState private var isDescriptionFocused: Bool
     
     // Shared instances
     private let functions = Functions.functions(region: "us-central1")
@@ -61,28 +63,33 @@ struct CreateTabView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 
-                VStack(spacing: 20) {
-                    videoPickerButton
-                        .onChange(of: selectedItem) { newItem in
-                            Task {
-                                await handleVideoSelection(newItem)
-                            }
+                ScrollView {
+                    VStack(spacing: 24) {
+                        if uploadComplete && selectedVideoURL == nil {
+                            successSection
                         }
-                    
-                    uploadProgressView
-                    descriptionField
-                    uploadButton
-                    
-                    if uploadComplete {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .font(.system(size: 50))
-                            .padding(.top)
+                        
+                        if let videoURL = selectedVideoURL {
+                            videoPreviewSection
+                        } else if !uploadComplete {
+                            uploadPromptSection
+                        }
+                        
+                        if isOptimizing || isUploading {
+                            progressSection
+                        }
+                        
+                        if selectedVideoURL != nil {
+                            descriptionSection
+                        }
+                        
+                        if selectedVideoURL != nil && !uploadComplete {
+                            uploadButton
+                        }
                     }
-                    
-                    Spacer()
+                    .padding(.horizontal)
+                    .padding(.top, 20)
                 }
-                .padding(.top, 20)
             }
             .navigationTitle("Create")
             .navigationBarTitleDisplayMode(.inline)
@@ -97,111 +104,271 @@ struct CreateTabView: View {
         }
     }
     
-    private var videoPickerButton: some View {
+    private var uploadPromptSection: some View {
         PhotosPicker(
             selection: $selectedItem,
             matching: .videos,
             photoLibrary: .shared()
         ) {
-            VStack {
-                Image(systemName: "video.badge.plus")
-                    .font(.system(size: 40))
-                Text("Select Video")
+            VStack(spacing: 16) {
+                if isLoadingVideo {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                        .frame(width: 80, height: 80)
+                } else {
+                    Circle()
+                        .fill(Color(red: 0.2, green: 0.2, blue: 0.3))
+                        .frame(width: 80, height: 80)
+                        .overlay(
+                            Image(systemName: "video.badge.plus")
+                                .font(.system(size: 30))
+                                .foregroundColor(.white)
+                        )
+                }
+                
+                Text(isLoadingVideo ? "Loading Video..." : "Select a Video")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                
+                if !isLoadingVideo {
+                    Text("Tap to choose a video from your library")
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                }
             }
             .frame(maxWidth: .infinity)
-            .padding()
-            .background(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
-            .cornerRadius(12)
-            .foregroundColor(.white)
+            .padding(.vertical, 40)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(red: 0.15, green: 0.15, blue: 0.2))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                    )
+            )
         }
-        .padding(.horizontal)
+        .onChange(of: selectedItem) { newItem in
+            Task {
+                await handleVideoSelection(newItem)
+            }
+        }
+        .disabled(isLoadingVideo)
     }
     
-    private var uploadProgressView: some View {
-        Group {
-            if selectedVideoURL != nil && (isOptimizing || isUploading) {
-                VStack {
-                    if isOptimizing {
-                        ProgressView("Optimizing video...")
-                            .progressViewStyle(.circular)
-                            .foregroundColor(.white)
-                    } else {
-                        ProgressView("Uploading...", value: uploadProgress, total: 100)
-                            .progressViewStyle(.linear)
-                            .foregroundColor(.white)
-                        Text("\(Int(uploadProgress))%")
-                            .foregroundColor(.white)
-                    }
+    private var videoPreviewSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Selected Video")
+                .font(.headline)
+                .foregroundColor(.white)
+            
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(red: 0.15, green: 0.15, blue: 0.2))
+                
+                Image(systemName: "video.fill")
+                    .font(.system(size: 30))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+            .frame(height: 200)
+            
+            Button(action: {
+                selectedItem = nil
+                selectedVideoURL = nil
+            }) {
+                HStack {
+                    Image(systemName: "arrow.counterclockwise")
+                    Text("Change Video")
                 }
-                .padding()
+                .font(.subheadline)
+                .foregroundColor(.blue)
             }
         }
     }
     
-    private var descriptionField: some View {
-        TextField("Add description...", text: $description)
-            .textFieldStyle(PlainTextFieldStyle())
-            .padding()
-            .background(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
-            .cornerRadius(8)
-            .padding(.horizontal)
-            .foregroundColor(.white)
+    private var progressSection: some View {
+        VStack(spacing: 16) {
+            if isOptimizing {
+                HStack(spacing: 12) {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                    
+                    Text("Optimizing video...")
+                        .foregroundColor(.white)
+                        .font(.subheadline)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Uploading...")
+                            .foregroundColor(.white)
+                            .font(.subheadline)
+                        Spacer()
+                        Text("\(Int(uploadProgress))%")
+                            .foregroundColor(.white)
+                            .font(.subheadline.bold())
+                    }
+                    
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.white.opacity(0.2))
+                                .frame(height: 8)
+                            
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [.blue, .purple]),
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .frame(width: geometry.size.width * uploadProgress / 100, height: 8)
+                        }
+                    }
+                    .frame(height: 8)
+                }
+            }
+        }
+        .padding()
+        .background(Color(red: 0.15, green: 0.15, blue: 0.2))
+        .cornerRadius(12)
+    }
+    
+    private var descriptionSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Description")
+                .font(.headline)
+                .foregroundColor(.white)
+            
+            TextEditor(text: $description)
+                .frame(height: 100)
+                .padding(12)
+                .background(Color(red: 0.15, green: 0.15, blue: 0.2))
+                .cornerRadius(12)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                )
+                .foregroundColor(.white)
+                .focused($isDescriptionFocused)
+        }
+    }
+    
+    private var successSection: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 60))
+                .foregroundColor(.green)
+            
+            Text("Upload Complete!")
+                .font(.headline)
+                .foregroundColor(.white)
+            
+            Text("Your video has been successfully uploaded")
+                .font(.subheadline)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+            
+            PhotosPicker(
+                selection: $selectedItem,
+                matching: .videos,
+                photoLibrary: .shared()
+            ) {
+                Text("Upload Another Video")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [.blue, .purple]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
+                    )
+            }
+            .onChange(of: selectedItem) { newItem in
+                Task {
+                    await handleVideoSelection(newItem)
+                }
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity)
+        .background(Color(red: 0.15, green: 0.15, blue: 0.2))
+        .cornerRadius(12)
     }
     
     private var uploadButton: some View {
-         Button(action: { Task { await uploadVideo() } })
-         {
-            if isUploading || isOptimizing {
-                ProgressView()
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    .frame(maxWidth: .infinity)
-                    .padding()
-            } else {
-                Text("Upload")
-                    .frame(maxWidth: .infinity)
-                    .padding()
+        Button(action: { Task { await uploadVideo() } }) {
+            HStack {
+                if isUploading || isOptimizing {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                } else {
+                    Text("Upload Video")
+                        .fontWeight(.semibold)
+                }
             }
-        }
-        .background(
-            LinearGradient(
-                gradient: Gradient(colors: [
-                    Color(red: 0.2, green: 0.2, blue: 0.3),
-                    Color(red: 0.3, green: 0.2, blue: 0.4)
-                ]),
-                startPoint: .leading,
-                endPoint: .trailing
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.blue,
+                        Color.purple
+                    ]),
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
             )
-        )
-        .foregroundColor(.white)
-        .cornerRadius(8)
-        .padding(.horizontal)
+            .foregroundColor(.white)
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
+            )
+        }
         .disabled(selectedVideoURL == nil || description.isEmpty || isUploading || isOptimizing)
+        .opacity((selectedVideoURL == nil || description.isEmpty || isUploading || isOptimizing) ? 0.5 : 1)
     }
     
     // MARK: - Helper Functions
     
     private func handleVideoSelection(_ newItem: PhotosPickerItem?) async {
-        // Reset form and state when selecting new video
+        // Reset all state when user starts new video selection
         selectedVideoURL = nil
         description = ""
         uploadProgress = 0
         isUploading = false
         uploadComplete = false
+        currentUploadId = nil
+        isLoadingVideo = true  // Set loading state before processing
         
-        if let data = try? await newItem?.loadTransferable(type: Data.self) {
-            let tempDir = FileManager.default.temporaryDirectory
-            let fileName = "\(UUID().uuidString).mov"
-            let fileURL = tempDir.appendingPathComponent(fileName)
-            
-            do {
-                try data.write(to: fileURL)
-                selectedVideoURL = fileURL
-            } catch {
-                print("Error saving video: \(error.localizedDescription)")
-                alertMessage = "Failed to process video"
-                showAlert = true
+        if let newItem = newItem {
+            if let data = try? await newItem.loadTransferable(type: Data.self) {
+                let tempDir = FileManager.default.temporaryDirectory
+                let fileName = "\(UUID().uuidString).mov"
+                let fileURL = tempDir.appendingPathComponent(fileName)
+                
+                do {
+                    try data.write(to: fileURL)
+                    selectedVideoURL = fileURL
+                } catch {
+                    print("Error saving video: \(error.localizedDescription)")
+                    alertMessage = "Failed to process video"
+                    showAlert = true
+                }
             }
         }
+        isLoadingVideo = false
     }
     
     private func optimizeVideo(from sourceURL: URL) async throws -> URL {
@@ -291,6 +458,7 @@ struct CreateTabView: View {
         
         isOptimizing = true
         uploadProgress = 0
+        isDescriptionFocused = false  // Dismiss keyboard first, but keep the text
         
         do {
             // Optimize video before upload
@@ -342,7 +510,7 @@ struct CreateTabView: View {
                 "id": muxResponse.uploadId,
                 "creator": uid,
                 "display_name": displayName,
-                "description": description,
+                "description": description,  // Use the description before clearing it
                 "created_at": Int(Date().timeIntervalSince1970 * 1000), // Convert to milliseconds as integer
                 "status": "uploading"
             ])
@@ -362,11 +530,14 @@ struct CreateTabView: View {
             isUploading = false
             uploadProgress = 0
             uploadComplete = true
+            description = ""  // Clear description after successful upload
+            selectedVideoURL = nil  // Remove video but keep success state
             
         } catch {
             alertMessage = "Upload failed: \(error.localizedDescription)"
             showAlert = true
             isUploading = false
+            isOptimizing = false
             uploadProgress = 0
         }
     }
