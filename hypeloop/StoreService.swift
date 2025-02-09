@@ -78,6 +78,8 @@ class StoreService: ObservableObject {
         
         do {
             print("🛍️ Environment: \(isTestFlight ? "TestFlight" : "Debug")")
+            print("🛍️ Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
+            print("🛍️ App Store Receipt: \(Bundle.main.appStoreReceiptURL?.path ?? "none")")
             print("🛍️ Requesting products with IDs: \(productIdentifiers)")
             
             // Request products from the App Store
@@ -109,10 +111,13 @@ class StoreService: ObservableObject {
                         2. You're not signed in with a sandbox account
                         3. The app's bundle identifier doesn't match
                         
+                        Current Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")
+                        
                         For TestFlight testing, make sure to:
                         1. Set up products in App Store Connect
                         2. Use a sandbox tester account
                         3. Wait for products to sync (can take a few minutes)
+                        4. Check that In-App Purchase capability is enabled
                         """
                 }
             }
