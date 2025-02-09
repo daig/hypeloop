@@ -69,6 +69,54 @@ struct SavedVideosTabView: View {
                             .font(.title2)
                             .bold()
                             .foregroundColor(.white)
+                        
+                        // Credits Section
+                        HStack(spacing: 12) {
+                            // Credits display
+                            VStack(alignment: .center, spacing: 4) {
+                                Text("\(authService.credits)")
+                                    .font(.system(size: 24, weight: .bold))
+                                    .foregroundColor(.white)
+                                Text("Credits")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.white.opacity(0.7))
+                            }
+                            .frame(width: 100)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
+                            )
+                            
+                            // Add Credits Button
+                            Button(action: {
+                                Task {
+                                    await authService.addCredits(100)
+                                }
+                            }) {
+                                HStack {
+                                    Image(systemName: "plus.circle.fill")
+                                    Text("Add Credits")
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [
+                                                    Color(red: 0.2, green: 0.2, blue: 0.3),
+                                                    Color(red: 0.3, green: 0.2, blue: 0.4)
+                                                ],
+                                                startPoint: .leading,
+                                                endPoint: .trailing
+                                            )
+                                        )
+                                )
+                            }
+                        }
+                        .padding(.top, 8)
                     }
                     .padding(.vertical, 24)
                     

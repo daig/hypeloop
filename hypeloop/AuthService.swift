@@ -10,6 +10,7 @@ class AuthService: ObservableObject {
     @Published var isAuthenticated = false
     @Published var userIconData: Data?
     @Published var displayName: String = "Anonymous"
+    @Published var credits: Int = 0
     private var currentNonce: String?
     
     static let shared = AuthService()
@@ -33,6 +34,7 @@ class AuthService: ObservableObject {
                 } else {
                     self?.userIconData = nil
                     self?.displayName = "Anonymous"
+                    self?.credits = 0
                 }
             }
         }
@@ -42,7 +44,97 @@ class AuthService: ObservableObject {
     
     private func updateUserInfo() async {
         await fetchUserIcon()
+        await fetchUserCredits()
         updateDisplayName()
+    }
+    
+    private func fetchUserCredits() async {
+        guard let uid = user?.uid else { return }
+        
+        do {
+            let docSnapshot = try await db.collection("users").document(uid).getDocument()
+            if let credits = docSnapshot.data()?["credits"] as? Int {
+                await MainActor.run {
+                    self.credits = credits
+                }
+            } else {
+                // Initialize credits if not found
+                try await db.collection("users").document(uid).setData([
+                    "credits": 0
+                ], merge: true)
+                await MainActor.run {
+                    self.credits = 0
+                }
+            }
+        } catch {
+            print("Error fetching user credits: \(error.localizedDescription)")
+        }
+    }
+    
+    func addCredits(_ amount: Int) async {
+        guard let uid = user?.uid else { return }
+        
+        do {
+            // First check if the user document exists
+            let userDoc = try await db.collection("users").document(uid).getDocument()
+            if !userDoc.exists {
+                // Create the user document with initial credits
+                try await db.collection("users").document(uid).setData([
+                    "credits": amount
+                ])
+                await MainActor.run {
+                    self.credits = amount
+                }
+            } else {
+                // Update existing document
+                try await db.collection("users").document(uid).updateData([
+                    "credits": FieldValue.increment(Int64(amount))
+                ])
+                await MainActor.run {
+                    self.credits += amount
+                }
+            }
+        } catch {
+            print("Error adding credits: \(error.localizedDescription)")
+        }
+    }
+    
+    func useCredits(_ amount: Int) async -> Bool {
+        guard let uid = user?.uid, credits >= amount else { return false }
+        
+        do {
+            // Use a transaction to ensure atomic updates
+            let transactionResult = try await db.runTransaction { [self] transaction, errorPointer -> Any? in
+                let userDoc: DocumentSnapshot
+                do {
+                    userDoc = try transaction.getDocument(db.collection("users").document(uid))
+                } catch {
+                    errorPointer?.pointee = error as NSError
+                    return nil
+                }
+                
+                guard let currentCredits = userDoc.data()?["credits"] as? Int, currentCredits >= amount else {
+                    return nil
+                }
+                
+                transaction.updateData([
+                    "credits": currentCredits - amount
+                ], forDocument: db.collection("users").document(uid))
+                
+                return currentCredits - amount as Any
+            }
+            
+            if transactionResult != nil {
+                await MainActor.run {
+                    self.credits -= amount
+                }
+                return true
+            }
+            return false
+        } catch {
+            print("Error using credits: \(error.localizedDescription)")
+            return false
+        }
     }
     
     private func updateDisplayName() {
@@ -126,9 +218,19 @@ class AuthService: ObservableObject {
     
     func signIn(email: String, password: String) async throws {
         let result = try await Auth.auth().signIn(withEmail: email, password: password)
+        
+        // Initialize user document with credits if it doesn't exist
+        let userDoc = try await db.collection("users").document(result.user.uid).getDocument()
+        if !userDoc.exists {
+            try await db.collection("users").document(result.user.uid).setData([
+                "credits": 0  // Start with 0 credits
+            ])
+        }
+        
         DispatchQueue.main.async {
             self.user = result.user
             self.isAuthenticated = true
+            // Don't set credits here, it will be set by updateUserInfo via the auth state listener
         }
     }
     
@@ -143,9 +245,16 @@ class AuthService: ObservableObject {
     
     func signUp(email: String, password: String) async throws {
         let result = try await Auth.auth().createUser(withEmail: email, password: password)
+        
+        // Initialize user document with credits
+        try await db.collection("users").document(result.user.uid).setData([
+            "credits": 0  // Start with 0 credits
+        ])
+        
         DispatchQueue.main.async {
             self.user = result.user
             self.isAuthenticated = true
+            self.credits = 0
         }
     }
     
@@ -217,6 +326,14 @@ class AuthService: ObservableObject {
             )
             let result = try await Auth.auth().signIn(with: credential)
             
+            // Initialize user document with credits if it doesn't exist
+            let userDoc = try await db.collection("users").document(result.user.uid).getDocument()
+            if !userDoc.exists {
+                try await db.collection("users").document(result.user.uid).setData([
+                    "credits": 0  // Start with 0 credits
+                ])
+            }
+            
             // Optionally update display name if available.
             if let fullName = appleIDCredential.fullName {
                 let changeRequest = result.user.createProfileChangeRequest()
@@ -229,6 +346,7 @@ class AuthService: ObservableObject {
             DispatchQueue.main.async {
                 self.user = result.user
                 self.isAuthenticated = true
+                self.credits = 0
             }
         case .failure(let error):
             throw error

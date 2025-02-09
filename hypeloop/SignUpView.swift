@@ -1,10 +1,12 @@
 import SwiftUI
 import FirebaseAuth
+import FirebaseFirestore
 
 struct SignUpView: View {
     @Binding var isLoggedIn: Bool
     @Environment(\.dismiss) private var dismiss
     @StateObject private var authService = AuthService.shared
+    private let db = Firestore.firestore()
 
     @State private var email: String = ""
     @State private var password: String = ""
