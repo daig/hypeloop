@@ -138,18 +138,13 @@ struct SwipeableCard<Content: View>: View {
         if isUp, let upAction = configuration.upAction {
             showUpIndicator = true
             withAnimation(.easeOut(duration: 0.3)) {
-                offset.height = -500
+                offset.height = -600
                 upIndicatorOffset = -200
             } completion: {
                 upAction.action()
-                withAnimation(.none) {
-                    offset = .zero
-                }
-                withAnimation(.easeOut(duration: 0.2)) {
-                    showUpIndicator = false
-                } completion: {
-                    upIndicatorOffset = 0
-                }
+                withAnimation(.none) { offset = .zero }
+                withAnimation(.easeOut(duration: 0.2)) { showUpIndicator = false }
+                    completion: { upIndicatorOffset = 0 }
             }
         } else if !isUp, let downAction = configuration.downAction {
             showDownIndicator = true
@@ -158,14 +153,10 @@ struct SwipeableCard<Content: View>: View {
                 downIndicatorOffset = 200
             } completion: {
                 downAction.action()
-                withAnimation(.none) {
-                    offset = .zero
-                }
-                withAnimation(.easeOut(duration: 0.2)) {
-                    showDownIndicator = false
-                } completion: {
-                    downIndicatorOffset = 0
-                }
+                withAnimation(.none) { offset = .zero }
+                withAnimation(.easeOut(duration: 0.2))
+                                { showDownIndicator = false }
+                    completion: { downIndicatorOffset = 0 }
             }
         }
     }
@@ -187,9 +178,7 @@ struct SwipeableCard<Content: View>: View {
             offset.height = dragOffset.height
         } completion: {
             action()
-            withAnimation(.none) {
-                offset = .zero
-            }
+            withAnimation(.none) { offset = .zero }
             withAnimation(.easeOut(duration: 0.2)) {
                 showLeftIndicator = false
                 showRightIndicator = false

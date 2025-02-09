@@ -16,9 +16,7 @@ struct hypeloopApp: App {
 
     @StateObject private var authService = AuthService.shared
     
-    init() {
-        FirebaseApp.configure()
-    }
+    init() { FirebaseApp.configure() }
     
     var body: some Scene {
         WindowGroup {

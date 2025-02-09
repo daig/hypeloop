@@ -62,11 +62,7 @@ struct ContentView: View {
             } else {
                 // Loading state
                 ProgressView("Loading...")
-                    .task {
-                        // Initialize VideoManager
-                        let manager = await VideoManager()
-                        self.videoManager = manager
-                    }
+                    .task { self.videoManager = await VideoManager() }
             }
         }
         .overlay(ShakeResponder().allowsHitTesting(false))

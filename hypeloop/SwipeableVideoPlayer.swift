@@ -60,43 +60,20 @@ struct VideoCard: View, VideoPlaybackView, VideoInfoView {
     }
 }
 
-/// Tap gesture modifier
-struct TapGestureModifier: ViewModifier {
-    let onTap: () -> Void
-    let onDoubleTap: () -> Void
-    
-    func body(content: Content) -> some View {
-        content.gesture(
-            SimultaneousGesture(
-                TapGesture()
-                    .onEnded { _ in onTap() },
-                TapGesture(count: 2)
-                    .onEnded { _ in onDoubleTap() }
-            )
-        )
-    }
-}
-
-/// Swipe gesture modifier
-struct SwipeGestureModifier: ViewModifier {
-    let configuration: SwipeConfiguration
-    
-    func body(content: Content) -> some View {
-        SwipeableCard(configuration: configuration) {
-            content
-        }
-    }
-}
-
-/// Extension to add tap gestures
+/// Extension to add gestures
 extension View {
+    
+    // Direct implementation without ViewModifier
     func withTapGestures(onTap: @escaping () -> Void, onDoubleTap: @escaping () -> Void) -> some View {
-        modifier(TapGestureModifier(onTap: onTap, onDoubleTap: onDoubleTap))
+        self.gesture(
+            SimultaneousGesture(
+                TapGesture()         .onEnded { _ in onTap() },
+                TapGesture(count: 2) .onEnded { _ in onDoubleTap() }
+            ) )
     }
     
     func withSwipeGestures(configuration: SwipeConfiguration) -> some View {
-        modifier(SwipeGestureModifier(configuration: configuration))
-    }
+        SwipeableCard(configuration: configuration) { self } }
 }
 
 struct SwipeableVideoPlayer: View {
@@ -154,9 +131,7 @@ struct SwipeableVideoPlayer: View {
     }
     
     // MARK: - Swipe Direction Enum
-    private enum SwipeDirection {
-        case left, right, up, down
-    }
+    private enum SwipeDirection { case left, right, up, down }
     
     // MARK: - Swipe Handler
     private func handleSwipeAway(direction: SwipeDirection) {
@@ -167,21 +142,22 @@ struct SwipeableVideoPlayer: View {
         previousVideo = videoManager.currentVideo
         
         // Delay the actual action to match the swipe animation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            switch direction {
-            case .left:
-                videoManager.handleLeftSwipe()
-            case .right:
-                videoManager.handleRightSwipe()
-            case .up:
-                videoManager.handleUpSwipe()
-            case .down:
-                videoManager.handleDownSwipe()
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            
+            await MainActor.run {
+                switch direction {
+                    case .left:  videoManager.handleLeftSwipe()
+                    case .right: videoManager.handleRightSwipe()
+                    case .up:    videoManager.handleUpSwipe()
+                    case .down:  videoManager.handleDownSwipe()
+                }
+                isSwipingAway = false
             }
-            isSwipingAway = false
             
             // Reset transition state after a delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            try? await Task.sleep(for: .milliseconds(300))
+            await MainActor.run {
                 isTransitioning = false
             }
         }
