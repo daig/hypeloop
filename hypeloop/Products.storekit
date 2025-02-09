@@ -1,0 +1,65 @@
+{
+  "identifier" : "9A6EE1B5",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "0.99",
+      "familyShareable" : false,
+      "internalID" : "6F118E2A",
+      "localizations" : [
+        {
+          "description" : "Get 100 credits to use in the app",
+          "displayName" : "100 Credits",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.hypeloop.credits.100",
+      "referenceName" : "100 Credits",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "7F118E2B",
+      "localizations" : [
+        {
+          "description" : "Get 500 credits to use in the app",
+          "displayName" : "500 Credits",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.hypeloop.credits.500",
+      "referenceName" : "500 Credits",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : false,
+      "internalID" : "8F118E2C",
+      "localizations" : [
+        {
+          "description" : "Get 1000 credits to use in the app",
+          "displayName" : "1000 Credits",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.hypeloop.credits.1000",
+      "referenceName" : "1000 Credits",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_storeKitError" : 0,
+    "_timeRate" : 0
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 2,
+    "minor" : 0
+  }
+} 

@@ -21,6 +21,7 @@ struct SavedVideosTabView: View {
     @State private var hasMoreContent = true
     @State private var isLoadingMore = false
     @State private var thumbnailRetryAttempts: [String: Int] = [:]
+    @State private var showingStoreSheet = false
     private let videosPerPage = 20
     
     private let db = Firestore.firestore()
@@ -88,15 +89,13 @@ struct SavedVideosTabView: View {
                                     .fill(Color(red: 0.15, green: 0.15, blue: 0.2, opacity: 0.7))
                             )
                             
-                            // Add Credits Button
+                            // Buy Credits Button
                             Button(action: {
-                                Task {
-                                    await authService.addCredits(100)
-                                }
+                                showingStoreSheet = true
                             }) {
                                 HStack {
-                                    Image(systemName: "plus.circle.fill")
-                                    Text("Add Credits")
+                                    Image(systemName: "cart.circle.fill")
+                                    Text("Buy Credits")
                                 }
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 16)
@@ -160,6 +159,9 @@ struct SavedVideosTabView: View {
             }
             .refreshable {
                 await loadSavedVideos()
+            }
+            .sheet(isPresented: $showingStoreSheet) {
+                StoreView()
             }
         }
     }
