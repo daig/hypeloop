@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 from typing import List, Dict, Tuple
-from langchain_openai import ChatOpenAI
+from openai import OpenAI
 from langgraph.func import task, entrypoint
 from langgraph.checkpoint.memory import MemorySaver
 import argparse
@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 env_path = os.path.join(os.path.dirname(__file__), '../../.env')
 load_dotenv(env_path)
 
-# Initialize LangChain OpenAI Chat model
-llm = ChatOpenAI(model="gpt-4o", temperature=0.7)
+# Initialize OpenAI client
+client = OpenAI()
 
 # ---------- Helper Function to Parse Keyframe Output ----------
 
@@ -65,6 +65,17 @@ def log_prompt_and_response(prompt: str, response: str, context: str = ""):
     logger.debug("\n----- Response -----\n%s", textwrap.indent(response, '< '))
     logger.debug("-" * 60)
 
+def invoke_chat_completion(prompt: str) -> str:
+    """
+    Helper function to invoke OpenAI chat completion API.
+    """
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7
+    )
+    return response.choices[0].message.content
+
 # ---------- OpenAI Pipeline Tasks using LangGraph ----------
 
 @task
@@ -87,14 +98,14 @@ Requirements:
 Please produce the complete screenplay in a structured format.
 """
     logger.debug("Sending prompt to OpenAI (length: %d characters)", len(prompt))
-    response = llm.invoke(prompt)
+    response = invoke_chat_completion(prompt)
     
     elapsed_time = time.time() - start_time
     logger.info("Script generation completed in %.2f seconds", elapsed_time)
-    logger.debug("Generated script length: %d characters", len(response.content))
+    logger.debug("Generated script length: %d characters", len(response))
     
-    log_prompt_and_response(prompt, response.content, "Script Generation")
-    return response.content
+    log_prompt_and_response(prompt, response, "Script Generation")
+    return response
 
 @task
 def extract_keyframes(script: str) -> List[Dict[str, str]]:
@@ -125,8 +136,8 @@ Title: [Your title]
 Description: [Detailed visual description]
 """
     logger.debug("Sending keyframe extraction prompt to OpenAI")
-    response = llm.invoke(prompt)
-    keyframe_text = response.content
+    response = invoke_chat_completion(prompt)
+    keyframe_text = response
     
     log_prompt_and_response(prompt, keyframe_text, "Keyframe Extraction")
     
@@ -162,14 +173,14 @@ Dialogue:
   - [Character Name]: [Dialogue text]
   - [Character Name]: [Dialogue text] (if applicable)
 """
-    response = llm.invoke(prompt)
+    response = invoke_chat_completion(prompt)
     
-    log_prompt_and_response(prompt, response.content, f"Dialog Extraction (Keyframe: {keyframe_description[:50]}...)")
+    log_prompt_and_response(prompt, response, f"Dialog Extraction (Keyframe: {keyframe_description[:50]}...)")
     
     elapsed_time = time.time() - start_time
     logger.debug("Dialog extraction completed in %.2f seconds", elapsed_time)
     
-    return response.content
+    return response
 
 @entrypoint(checkpointer=MemorySaver())
 def generate_story(inputs: Dict[str, List[str]]) -> List[Tuple[str, str]]:
