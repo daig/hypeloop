@@ -49,13 +49,8 @@ extension VideoManager {
                 currentPlayer.play()
             }
             
-            // Wait for current player to be ready before setting up next
+            // Set up next player immediately since we know it's ready
             Task { @MainActor in
-                // Wait for player to be ready
-               // for await status in currentPlayer.publisher(for: \.status).values {
-                //    if status == .readyToPlay { break }
-                //}
-                
                 // Now safely set up the next player
                 self.nextPlayer = oldPlayer
                 self.nextLooper = oldLooper
