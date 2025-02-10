@@ -1,0 +1,5 @@
+---
+description: When workring with in app purchase and storekit
+globs: .swift
+---
+always use storekit 2 for in app purchases

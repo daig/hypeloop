@@ -1,0 +1,7 @@
+---
+description: when writing asynchronous or observer code in swiftui
+globs: *.swift
+---
+prefer modern (swift 6) asynchronous tools such as `async` and `Task` over older tools such as `DispatchQueue` when possible
+
+prefer `@Publish` based observation solutions over older KVO techniques when possible

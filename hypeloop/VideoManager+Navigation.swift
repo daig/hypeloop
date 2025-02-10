@@ -49,8 +49,14 @@ extension VideoManager {
                 currentPlayer.play()
             }
             
-            // After a short delay, set up the old player as the next player
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            // Wait for current player to be ready before setting up next
+            Task { @MainActor in
+                // Wait for player to be ready
+               // for await status in currentPlayer.publisher(for: \.status).values {
+                //    if status == .readyToPlay { break }
+                //}
+                
+                // Now safely set up the next player
                 self.nextPlayer = oldPlayer
                 self.nextLooper = oldLooper
                 self.nextPlayer.volume = 0

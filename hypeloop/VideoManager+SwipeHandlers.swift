@@ -13,9 +13,7 @@ extension VideoManager {
     // MARK: - Swipe Handlers
     
     /// Handles both left and right swipes
-    func handleHorizontalSwipe() {
-        moveToNextVideo()
-    }
+    func handleHorizontalSwipe() { moveToNextVideo() }
     
     // Swipe up => share
     func handleUpSwipe() {
