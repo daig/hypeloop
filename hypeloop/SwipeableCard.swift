@@ -39,6 +39,7 @@ struct SwipeableCard<Content: View>: View {
     
     @GestureState private var dragOffset: CGSize = .zero
     @State private var offset: CGSize = .zero
+    @State private var contentOpacity: Double = 1.0
     
     // Swipe feedback indicator states
     @State private var showLeftIndicator = false
@@ -59,6 +60,7 @@ struct SwipeableCard<Content: View>: View {
                 .offset(x: offset.width + dragOffset.width,
                        y: offset.height + dragOffset.height)
                 .rotationEffect(.degrees(rotationAngle))
+                .opacity(contentOpacity)
                 .gesture(
                     DragGesture()
                         .updating($dragOffset) { value, state, _ in
@@ -140,9 +142,13 @@ struct SwipeableCard<Content: View>: View {
             withAnimation(.easeOut(duration: 0.3)) {
                 offset.height = -600
                 upIndicatorOffset = -200
+                contentOpacity = 0  // Start fading during movement
             } completion: {
                 upAction.action()
-                withAnimation(.none) { offset = .zero }
+                withAnimation(.none) { 
+                    offset = .zero
+                    contentOpacity = 1.0
+                }
                 withAnimation(.easeOut(duration: 0.2)) { showUpIndicator = false }
                     completion: { upIndicatorOffset = 0 }
             }
@@ -151,11 +157,14 @@ struct SwipeableCard<Content: View>: View {
             withAnimation(.easeOut(duration: 0.3)) {
                 offset.height = 500
                 downIndicatorOffset = 200
+                contentOpacity = 0  // Start fading during movement
             } completion: {
                 downAction.action()
-                withAnimation(.none) { offset = .zero }
-                withAnimation(.easeOut(duration: 0.2))
-                                { showDownIndicator = false }
+                withAnimation(.none) { 
+                    offset = .zero
+                    contentOpacity = 1.0
+                }
+                withAnimation(.easeOut(duration: 0.2)) { showDownIndicator = false }
                     completion: { downIndicatorOffset = 0 }
             }
         }
