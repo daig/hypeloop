@@ -14,6 +14,19 @@ Requirements:
 Please produce the complete screenplay in a structured format.
 '''
 
+VISUAL_STYLE_PROMPT = '''You are a visual art director tasked with determining the most suitable visual style for a screenplay.
+Based on the mood, setting, and overall atmosphere of the script, select ONE of the following styles that would best represent the visual aesthetic.
+
+Consider:
+- The genre and tone of the story
+- The setting and time period
+- The level of realism vs. stylization needed
+- The emotional impact desired
+
+Script:
+{script}
+'''
+
 KEYFRAME_EXTRACTION_PROMPT = '''You are a visual storyteller and scene director.
 Below is a complete screenplay. Your task is to break it down into a series of key visual moments or "keyframes".
 
