@@ -57,10 +57,10 @@ class LeonardoAPI:
             "content-type": "application/json"
         }
 
-    def generate_image(self, prompt: str, style: LeonardoStyles) -> Optional["LeonardoAPI.GenerationId"]:
+    def generate_image_for_keyframe(self, prompt: str, style: LeonardoStyles) -> Optional[tuple["LeonardoAPI.GenerationId", str]]:
         """
         Generate an image using the Leonardo API.
-        Returns the generation ID if successful, None otherwise.
+        Returns tuple of (generation_id, image_id) if successful, None otherwise.
         """
         data = {
             "prompt": prompt,
@@ -83,10 +83,10 @@ class LeonardoAPI:
             return None
 
         generation_id = response.json().get("sdGenerationJob", {}).get("generationId")
-        return self.GenerationId(generation_id) if generation_id else None
+        return (self.GenerationId(generation_id), None) if generation_id else None
 
-    def poll_generation_status(self, generation_id: "LeonardoAPI.GenerationId") -> Optional[dict]:
-        """Poll the generation status until complete or failed."""
+    def poll_generation_status(self, generation_id: "LeonardoAPI.GenerationId") -> Optional[tuple[dict, str]]:
+        """Poll the generation status until complete or failed. Returns (generation_data, image_id)."""
         url = f"{self.base_url}/generations/{generation_id.id}"
         
         while True:
@@ -101,9 +101,61 @@ class LeonardoAPI:
             print(f"Generation status: {status}")
             
             if status == "COMPLETE":
-                return generation_data
+                # Get the image ID from the first generated image
+                generated_images = generation_data.get("generated_images", [])
+                if generated_images:
+                    image_id = generated_images[0].get("id")
+                    return generation_data, image_id
+                return generation_data, None
             elif status in ["FAILED", "DELETED"]:
                 print(f"Generation failed with status: {status}")
+                return None
+                
+            time.sleep(5)  # Wait 5 seconds before polling again
+
+    def generate_motion(self, image_id: str) -> Optional["LeonardoAPI.GenerationId"]:
+        """
+        Generate a motion video using the Leonardo API's SVD motion endpoint.
+        Returns the generation ID if successful, None otherwise.
+        """
+        data = {
+            "imageId": image_id,
+            "motionStrength": 5,
+            "isPublic": False
+        }
+
+        response = requests.post(
+            f"{self.base_url}/generations-motion-svd",
+            headers=self.headers,
+            json=data
+        )
+
+        if response.status_code != 200:
+            print(f"Error generating motion: {response.text}")
+            return None
+
+        generation_id = response.json().get("motionSvdGenerationJob", {}).get("generationId")
+        return self.GenerationId(generation_id) if generation_id else None
+
+    def poll_motion_status(self, generation_id: "LeonardoAPI.GenerationId") -> Optional[dict]:
+        """Poll the motion generation status until complete or failed."""
+        url = f"{self.base_url}/generations-motion-svd/{generation_id.id}"
+        
+        while True:
+            response = requests.get(url, headers=self.headers)
+            if response.status_code != 200:
+                print(f"Error checking motion status: {response.text}")
+                return None
+                
+            data = response.json()
+            generation_data = data.get("generations_motion_by_pk", {})
+            status = generation_data.get("status")
+            print(f"Motion generation status: {status}")
+            
+            if status == "COMPLETE":
+                return generation_data
+            elif status in ["FAILED", "DELETED"]:
+                print(f"Motion generation failed with status: {status}")
                 return None
                 
             time.sleep(5)  # Wait 5 seconds before polling again 

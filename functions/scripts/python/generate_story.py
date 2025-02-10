@@ -15,22 +15,28 @@ def generate_image_for_keyframe(leonardo_client: LeonardoAPI,
                               keyframe_desc: str, 
                               visual_style: str,
                               output_dir: Path,
-                              keyframe_num: int) -> None:
-    """Generate an image for a keyframe using the Leonardo API."""
+                              keyframe_num: int) -> tuple[Path | None, str | None, str | None]:
+    """
+    Generate an image for a keyframe using the Leonardo API.
+    Returns tuple of (image_path, generation_id, image_id) if successful, (None, None, None) otherwise.
+    """
     try:
         # Convert string style to enum
         style = LeonardoStyles(visual_style.lower())
         
         # Generate the image
-        generation_id = leonardo_client.generate_image(keyframe_desc, style)
-        if not generation_id:
+        generation_result = leonardo_client.generate_image(keyframe_desc, style)
+        if not generation_result:
             logger.error(f"Failed to generate image for keyframe {keyframe_num}")
-            return
+            return None, None, None
+
+        generation_id, _ = generation_result
 
         # Poll for completion and get result
-        generation_result = leonardo_client.poll_generation_status(generation_id)
-        if generation_result:
-            generated_images = generation_result.get("generated_images", [])
+        poll_result = leonardo_client.poll_generation_status(generation_id)
+        if poll_result:
+            generation_data, image_id = poll_result
+            generated_images = generation_data.get("generated_images", [])
             if generated_images:
                 image_url = generated_images[0].get("url")
                 if image_url:
@@ -45,6 +51,7 @@ def generate_image_for_keyframe(leonardo_client: LeonardoAPI,
                         with open(image_path, "wb") as f:
                             f.write(response.content)
                         logger.info(f"Saved image for keyframe {keyframe_num} to {image_path}")
+                        return image_path, str(generation_id), image_id
                     else:
                         logger.error(f"Failed to download image for keyframe {keyframe_num}: {response.status_code}")
                 else:
@@ -55,6 +62,43 @@ def generate_image_for_keyframe(leonardo_client: LeonardoAPI,
             logger.error(f"Generation failed for keyframe {keyframe_num}")
     except Exception as e:
         logger.error(f"Error generating image for keyframe {keyframe_num}: {e}")
+    
+    return None, None, None
+
+def generate_motion_for_image(leonardo_client: LeonardoAPI,
+                            generation_id: str,
+                            output_dir: Path) -> None:
+    """Generate a motion video for an image using the Leonardo API."""
+    try:
+        # Generate motion using the SVD endpoint
+        motion_generation_id = leonardo_client.generate_motion(generation_id)
+        if not motion_generation_id:
+            logger.error("Failed to start motion generation")
+            return
+
+        # Poll for completion and get result
+        motion_result = leonardo_client.poll_motion_status(motion_generation_id)
+        if motion_result:
+            video_url = motion_result.get("url")
+            if video_url:
+                # Download video
+                video_path = output_dir / "keyframe_1_motion.mp4"
+                
+                # Use requests to download the video
+                import requests
+                response = requests.get(video_url)
+                if response.status_code == 200:
+                    with open(video_path, "wb") as f:
+                        f.write(response.content)
+                    logger.info(f"Saved motion video to {video_path}")
+                else:
+                    logger.error(f"Failed to download motion video: {response.status_code}")
+            else:
+                logger.error("No video URL in motion generation response")
+        else:
+            logger.error("Motion generation failed")
+    except Exception as e:
+        logger.error(f"Error generating motion: {e}")
 
 def main():
     parser = argparse.ArgumentParser(description="Generate a story based on theme keywords.")
@@ -63,6 +107,7 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     parser.add_argument("--output-dir", default="output", help="Directory to save the generated files")
     parser.add_argument("--images", help="Generate images for keyframes and save to specified directory")
+    parser.add_argument("--motion", action="store_true", help="Generate motion video for the first keyframe image")
     
     args = parser.parse_args()
     
@@ -116,6 +161,9 @@ def main():
         print(f"\nSelected Visual Style: {visual_style}\n")
         print("=" * 80 + "\n")
     
+    # Track first keyframe's image ID for motion generation
+    first_keyframe_image_id = None
+    
     # Write each keyframe and dialog to separate files, and generate images if requested
     for idx, (desc, dialog, _) in enumerate(story, start=1):
         # Write keyframe description
@@ -133,18 +181,31 @@ def main():
         # Generate image if requested
         if leonardo_client and args.images:
             print(f"\nGenerating image for keyframe {idx}...")
-            generate_image_for_keyframe(
+            _, _, image_id = generate_image_for_keyframe(
                 leonardo_client,
                 desc,
                 visual_style,
                 Path(args.images),
                 idx
             )
+            
+            # Store the first keyframe's image ID for motion
+            if idx == 1 and image_id:
+                first_keyframe_image_id = image_id
         
         # Print to console for immediate feedback
         print(f"Keyframe {idx} Description:\n{desc}\n")
         print(f"Keyframe {idx} Dialog/Narration:\n{dialog}\n")
         print("=" * 80)
+    
+    # Generate motion for the first keyframe if requested
+    if args.motion and leonardo_client and first_keyframe_image_id:
+        print("\nGenerating motion for first keyframe...")
+        generate_motion_for_image(
+            leonardo_client,
+            first_keyframe_image_id,
+            Path(args.images)
+        )
 
 if __name__ == "__main__":
     main()
