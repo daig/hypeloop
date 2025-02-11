@@ -309,16 +309,12 @@ class VideoMerger {
         print("\n🎬 Stitching \(mergedFiles.count) merged files together...")
         let stitchedURL = try await stitchVideos(videoURLs: mergedFiles, outputURL: outputURL)
         
-        // Clean up merged files
-        for url in mergedFiles {
-            try? FileManager.default.removeItem(at: url)
-        }
-        
         print("\n📊 Final Processing Summary:")
         print("├─ Total pairs: \(pairs.count)")
         print("├─ Successfully merged: \(mergedFiles.count)")
         print("└─ Final video: \(stitchedURL.lastPathComponent)")
         
+        // Return the URL without cleaning up - let the calling function handle cleanup after Photos export
         return stitchedURL
     }
     

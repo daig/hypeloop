@@ -986,15 +986,19 @@ struct CreateTabView: View {
                     request.addResource(with: .video, fileURL: stitchedURL, options: nil)
                 }
                 
-                print("🧹 Cleaning up temporary files...")
+                print("\n🧹 Cleaning up temporary files...")
                 
-                // Clean up all files in the documents directory that start with "temp_" or "merged_"
+                // Clean up all files in the documents directory that start with "temp_", "merged_", or "final_stitched_"
                 let tempFiles = try fileManager.contentsOfDirectory(at: documentsURL, includingPropertiesForKeys: nil)
                 for fileURL in tempFiles {
                     let filename = fileURL.lastPathComponent
                     if filename.hasPrefix("temp_") || filename.hasPrefix("merged_") || filename.hasPrefix("final_stitched_") {
-                        try? fileManager.removeItem(at: fileURL)
-                        print("🗑️ Removed: \(filename)")
+                        do {
+                            try fileManager.removeItem(at: fileURL)
+                            print("🗑️ Removed: \(filename)")
+                        } catch {
+                            print("⚠️ Failed to remove \(filename): \(error)")
+                        }
                     }
                 }
                 
@@ -1002,16 +1006,22 @@ struct CreateTabView: View {
                 print("✅ All temporary files cleaned up")
                 
             } catch {
+                print("❌ Error processing pairs: \(error)")
                 alertMessage = "Error processing pairs: \(error.localizedDescription)"
                 
-                // Clean up any remaining temporary files even if there was an error
+                // Only attempt cleanup of temporary files if there was an error
                 print("🧹 Cleaning up temporary files after error...")
-                let tempFiles = try? fileManager.contentsOfDirectory(at: documentsURL, includingPropertiesForKeys: nil)
-                tempFiles?.forEach { fileURL in
-                    let filename = fileURL.lastPathComponent
-                    if filename.hasPrefix("temp_") || filename.hasPrefix("merged_") || filename.hasPrefix("final_stitched_") {
-                        try? fileManager.removeItem(at: fileURL)
-                        print("🗑️ Removed: \(filename)")
+                if let tempFiles = try? fileManager.contentsOfDirectory(at: documentsURL, includingPropertiesForKeys: nil) {
+                    for fileURL in tempFiles {
+                        let filename = fileURL.lastPathComponent
+                        if filename.hasPrefix("temp_") || filename.hasPrefix("merged_") || filename.hasPrefix("final_stitched_") {
+                            do {
+                                try fileManager.removeItem(at: fileURL)
+                                print("🗑️ Removed: \(filename)")
+                            } catch {
+                                print("⚠️ Failed to remove \(filename): \(error)")
+                            }
+                        }
                     }
                 }
             }
