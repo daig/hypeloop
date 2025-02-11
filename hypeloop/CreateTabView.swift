@@ -8,6 +8,7 @@ import FirebaseAuth
 import FirebaseFirestore
 import ImageIO
 import UIKit
+import UniformTypeIdentifiers
 
 struct MuxUploadResponse: Codable {
     let uploadUrl: String
@@ -52,6 +53,33 @@ struct CreateTabView: View {
     @State private var isLoadingVideo = false
     @FocusState private var isDescriptionFocused: Bool
     
+    // New state variables for file importing and merging
+    @State private var showingFilePicker = false
+    @State private var sandboxVideoURL: URL? = nil
+    @State private var sandboxAudioURL: URL? = nil
+    @State private var isMerging = false
+    
+    // Add new state for tracking which type of file we're picking
+    private enum FilePickerType {
+        case video
+        case audio
+        case both
+        
+        var contentTypes: [UTType] {
+            switch self {
+                case .video: return [UTType("public.mpeg-4")!, UTType("public.movie")!, UTType("com.apple.quicktime-movie")!]
+                case .audio: return [UTType("public.mp3")!]
+                case .both: return [UTType("public.mp3")!, UTType("public.mpeg-4")!]
+            }
+        }
+        
+        var allowsMultiple: Bool {
+            self == .both
+        }
+    }
+    
+    @State private var currentPickerType: FilePickerType?
+    
     // Shared instances
     private let functions = Functions.functions(region: "us-central1")
     private let db = Firestore.firestore()
@@ -83,6 +111,9 @@ struct CreateTabView: View {
                             descriptionSection
                         }
                         
+                        // New section for file operations
+                        fileOperationsSection
+                        
                         if selectedVideoURL != nil && !uploadComplete {
                             uploadButton
                         }
@@ -100,6 +131,38 @@ struct CreateTabView: View {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(alertMessage)
+            }
+        }
+        .fileImporter(
+            isPresented: $showingFilePicker,
+            allowedContentTypes: currentPickerType?.contentTypes ?? [],
+            allowsMultipleSelection: currentPickerType?.allowsMultiple ?? false
+        ) { result in
+            print("📁 File picker triggered for type: \(String(describing: currentPickerType))")
+            Task {
+                switch currentPickerType {
+                case .video:
+                    if case .success(let urls) = result, let url = urls.first {
+                        print("📹 Selected video URL: \(url)")
+                        await handleSandboxVideoSelection(.success(url))
+                    }
+                case .audio:
+                    if case .success(let urls) = result, let url = urls.first {
+                        print("🎵 Selected audio URL: \(url)")
+                        await handleAudioSelection(.success(url))
+                    }
+                case .both:
+                    await handleFileImport(result)
+                case .none:
+                    print("❌ No picker type set")
+                }
+                
+                if case .failure(let error) = result {
+                    print("❌ File picker error: \(error)")
+                }
+                
+                // Reset picker type after selection
+                currentPickerType = nil
             }
         }
     }
@@ -340,6 +403,101 @@ struct CreateTabView: View {
         .opacity((selectedVideoURL == nil || description.isEmpty || isUploading || isOptimizing) ? 0.5 : 1)
     }
     
+    // New section for file operations
+    private var fileOperationsSection: some View {
+        VStack(spacing: 16) {
+            // Import files button
+            Button(action: {
+                print("📁 Import button tapped")
+                currentPickerType = .both
+                showingFilePicker = true
+            }) {
+                HStack {
+                    Image(systemName: "square.and.arrow.down")
+                    Text("Import Files to Sandbox")
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color(red: 0.2, green: 0.2, blue: 0.3))
+                .foregroundColor(.white)
+                .cornerRadius(12)
+            }
+            
+            // Merge files section
+            VStack(spacing: 12) {
+                Text("Merge Audio & Video")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                
+                // Select video button
+                Button(action: { 
+                    print("🎬 Video button tapped")
+                    currentPickerType = .video
+                    showingFilePicker = true
+                    print("🎬 showingFilePicker set to: \(showingFilePicker), type: \(String(describing: currentPickerType))")
+                }) {
+                    HStack {
+                        Image(systemName: "video.fill")
+                        Text(sandboxVideoURL != nil ? "Change Video" : "Select Video")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color(red: 0.2, green: 0.2, blue: 0.3))
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
+                
+                // Select audio button
+                Button(action: { 
+                    print("🎵 Audio button tapped")
+                    currentPickerType = .audio
+                    showingFilePicker = true
+                    print("🎵 showingFilePicker set to: \(showingFilePicker), type: \(String(describing: currentPickerType))")
+                }) {
+                    HStack {
+                        Image(systemName: "music.note")
+                        Text(sandboxAudioURL != nil ? "Change Audio" : "Select Audio")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color(red: 0.2, green: 0.2, blue: 0.3))
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
+                
+                // Merge button
+                if sandboxVideoURL != nil && sandboxAudioURL != nil {
+                    Button(action: { Task { await mergeFiles() } }) {
+                        HStack {
+                            if isMerging {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            } else {
+                                Image(systemName: "arrow.triangle.merge")
+                                Text("Merge Files")
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(
+                            LinearGradient(
+                                gradient: Gradient(colors: [.blue, .purple]),
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                    }
+                    .disabled(isMerging)
+                }
+            }
+            .padding()
+            .background(Color(red: 0.15, green: 0.15, blue: 0.2))
+            .cornerRadius(12)
+        }
+    }
+    
     // MARK: - Helper Functions
     
     private func handleVideoSelection(_ newItem: PhotosPickerItem?) async {
@@ -550,6 +708,142 @@ struct CreateTabView: View {
         } catch {
             print("Error updating video status: \(error.localizedDescription)")
         }
+    }
+    
+    // New file handling functions
+    private func handleFileImport(_ result: Result<[URL], Error>) async {
+        do {
+            let urls = try result.get()
+            for url in urls {
+                guard url.startAccessingSecurityScopedResource() else {
+                    print("🚫 Failed to access security scoped resource for: \(url)")
+                    continue
+                }
+                
+                defer { url.stopAccessingSecurityScopedResource() }
+                
+                let filename = url.lastPathComponent
+                let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let destinationURL = documentsURL.appendingPathComponent(filename)
+                
+                // Remove existing file if it exists
+                try? FileManager.default.removeItem(at: destinationURL)
+                
+                // Copy file to app sandbox
+                try FileManager.default.copyItem(at: url, to: destinationURL)
+                print("✅ Successfully imported: \(filename)")
+            }
+            
+            alertMessage = "Files imported successfully"
+            showAlert = true
+            
+        } catch {
+            print("❌ Error importing files: \(error)")
+            alertMessage = "Failed to import files: \(error.localizedDescription)"
+            showAlert = true
+        }
+    }
+    
+    private func handleSandboxVideoSelection(_ result: Result<URL, Error>) async {
+        do {
+            let url = try result.get()
+            print("📹 Attempting to access video at: \(url)")
+            guard url.startAccessingSecurityScopedResource() else {
+                print("❌ Failed to access security scoped resource for video")
+                throw NSError(domain: "FileAccess", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to access video file"])
+            }
+            defer { url.stopAccessingSecurityScopedResource() }
+            
+            // Copy to app sandbox
+            let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let filename = url.lastPathComponent
+            let destinationURL = documentsURL.appendingPathComponent(filename)
+            
+            // Remove existing file if it exists
+            try? FileManager.default.removeItem(at: destinationURL)
+            
+            // Copy file to app sandbox
+            try FileManager.default.copyItem(at: url, to: destinationURL)
+            print("✅ Successfully copied video to: \(destinationURL)")
+            
+            sandboxVideoURL = destinationURL
+            print("✅ Successfully set sandbox video URL")
+        } catch {
+            print("❌ Error handling video selection: \(error)")
+            alertMessage = "Failed to select video: \(error.localizedDescription)"
+            showAlert = true
+        }
+    }
+    
+    private func handleAudioSelection(_ result: Result<URL, Error>) async {
+        do {
+            let url = try result.get()
+            guard url.startAccessingSecurityScopedResource() else {
+                throw NSError(domain: "FileAccess", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to access audio file"])
+            }
+            defer { url.stopAccessingSecurityScopedResource() }
+            
+            // Copy to app sandbox
+            let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let filename = url.lastPathComponent
+            let destinationURL = documentsURL.appendingPathComponent(filename)
+            
+            // Remove existing file if it exists
+            try? FileManager.default.removeItem(at: destinationURL)
+            
+            // Copy file to app sandbox
+            try FileManager.default.copyItem(at: url, to: destinationURL)
+            print("✅ Successfully copied audio to: \(destinationURL)")
+            
+            sandboxAudioURL = destinationURL
+            print("✅ Successfully set sandbox audio URL")
+        } catch {
+            alertMessage = "Failed to select audio: \(error.localizedDescription)"
+            showAlert = true
+        }
+    }
+    
+    private func mergeFiles() async {
+        guard let videoURL = sandboxVideoURL,
+              let audioURL = sandboxAudioURL else { return }
+        
+        isMerging = true
+        
+        do {
+            let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let outputURL = documentsURL.appendingPathComponent("merged_\(UUID().uuidString).mp4")
+            
+            _ = try await VideoMerger.mergeAudioIntoVideo(
+                videoURL: videoURL,
+                audioURL: audioURL,
+                outputURL: outputURL
+            )
+            
+            // Save to Photos library
+            try await PHPhotoLibrary.shared().performChanges {
+                let request = PHAssetCreationRequest.forAsset()
+                request.addResource(with: .video, fileURL: outputURL, options: nil)
+            }
+            
+            alertMessage = "Files merged successfully! The video has been saved to your Photos library."
+            showAlert = true
+            
+            // Clean up files
+            try? FileManager.default.removeItem(at: outputURL)
+            try? FileManager.default.removeItem(at: videoURL)
+            try? FileManager.default.removeItem(at: audioURL)
+            
+            // Reset selection
+            sandboxVideoURL = nil
+            sandboxAudioURL = nil
+            
+        } catch {
+            print("❌ Merge error: \(error)")
+            alertMessage = "Failed to merge files: \(error.localizedDescription)"
+            showAlert = true
+        }
+        
+        isMerging = false
     }
 }
 

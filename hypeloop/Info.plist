@@ -13,5 +13,7 @@
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>We need access to save merged videos to your Photos library.</string>
 </dict>
 </plist>

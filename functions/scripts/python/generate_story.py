@@ -68,13 +68,14 @@ def generate_image_for_keyframe(leonardo_client: LeonardoAPI,
 
 def generate_motion_for_image(leonardo_client: LeonardoAPI,
                             image_id: str,
-                            output_dir: Path) -> None:
+                            output_dir: Path,
+                            keyframe_num: int) -> None:
     """Generate a motion video for an image using the Leonardo API."""
     try:
         # Generate motion using the SVD endpoint
         motion_generation_id = leonardo_client.generate_motion(image_id)
         if not motion_generation_id:
-            logger.error("Failed to start motion generation")
+            logger.error(f"Failed to start motion generation for keyframe {keyframe_num}")
             return
 
         # Poll for completion and get result
@@ -82,9 +83,9 @@ def generate_motion_for_image(leonardo_client: LeonardoAPI,
         if motion_result:
             video_url = motion_result.get("url")
             if video_url:
-                logger.info(f"Got video URL: {video_url}")
-                # Download video
-                video_path = output_dir / "keyframe_1_motion.mp4"
+                logger.info(f"Got video URL for keyframe {keyframe_num}: {video_url}")
+                # Download video - now using keyframe number in filename
+                video_path = output_dir / f"keyframe_{keyframe_num}.mp4"
                 
                 # Use requests to download the video
                 import requests
@@ -97,17 +98,17 @@ def generate_motion_for_image(leonardo_client: LeonardoAPI,
                 if response.status_code == 200 and len(response.content) > 0:
                     with open(video_path, "wb") as f:
                         f.write(response.content)
-                    logger.info(f"Saved motion video to {video_path}")
+                    logger.info(f"Saved motion video for keyframe {keyframe_num} to {video_path}")
                 else:
-                    logger.error(f"Failed to download motion video: Empty response or bad status {response.status_code}")
+                    logger.error(f"Failed to download motion video for keyframe {keyframe_num}: Empty response or bad status {response.status_code}")
                     if len(response.content) > 0:
-                        logger.error(f"Response content: {response.content[:200]}...")  # Log first 200 bytes
+                        logger.error(f"Response content: {response.content[:200]}...")
             else:
-                logger.error("No video URL in motion generation response")
+                logger.error(f"No video URL in motion generation response for keyframe {keyframe_num}")
         else:
-            logger.error("Motion generation failed")
+            logger.error(f"Motion generation failed for keyframe {keyframe_num}")
     except Exception as e:
-        logger.error(f"Error generating motion: {e}", exc_info=True)  # Added full traceback
+        logger.error(f"Error generating motion for keyframe {keyframe_num}: {e}", exc_info=True)
 
 def write_dialog_to_file(dialog: Tuple[Character, str], output_path: str):
     """Write dialog tuple as JSON to file."""
@@ -188,55 +189,61 @@ def main():
         print(f"\nSelected Visual Style: {visual_style}\n")
         print("=" * 80 + "\n")
     
-    # Track first keyframe's image ID for motion generation
-    first_keyframe_image_id = None
+    # Track all keyframe image IDs for motion generation
+    keyframe_image_ids = {}
+    image_generation_tasks = {}  # Track async image generation tasks
     
-    # Write each keyframe and dialog to separate files, and generate images if requested
-    for idx, (desc, dialog, _, audio_data) in enumerate(story, start=1):
-        # Write keyframe description
-        keyframe_file = output_dir / f"keyframe_{idx}.txt"
-        with open(keyframe_file, "w", encoding="utf-8") as f:
-            f.write(desc)
-        logger.info("Wrote keyframe %d to %s", idx, keyframe_file)
-        
-        # Write dialog to file
-        dialog_path = os.path.join(output_dir, f"dialog_{idx}.json")
-        write_dialog_to_file(dialog, dialog_path)
-        logger.info("Wrote dialog %d to %s", idx, dialog_path)
-        
-        # Write voiceover audio to file
-        voiceover_path = output_dir / f"voiceover_{idx}.mp3"
-        write_voiceover_to_file(audio_data, voiceover_path)
-        
-        # Generate image if requested
-        if leonardo_client and args.images:
-            print(f"\nGenerating image for keyframe {idx}...")
-            _, _, image_id = generate_image_for_keyframe(
-                leonardo_client,
-                desc,
-                visual_style,
-                Path(args.images),
-                idx
+    # Start image generation for all keyframes in parallel
+    if leonardo_client and args.images:
+        for idx, (desc, dialog, _, audio_data) in enumerate(story, start=1):
+            print(f"\nStarting image generation for keyframe {idx}...")
+            
+            # Start image generation asynchronously
+            image_generation_tasks[idx] = (
+                desc,  # Store description for later reference
+                generate_image_for_keyframe(
+                    leonardo_client,
+                    desc,
+                    visual_style,
+                    Path(args.images),
+                    idx
+                )
             )
             
-            # Store the first keyframe's image ID for motion
-            if idx == 1 and image_id:
-                first_keyframe_image_id = image_id
+            # Write other files while images are being generated
+            keyframe_file = output_dir / f"keyframe_{idx}.txt"
+            with open(keyframe_file, "w", encoding="utf-8") as f:
+                f.write(desc)
+            logger.info("Wrote keyframe %d to %s", idx, keyframe_file)
+            
+            dialog_path = os.path.join(output_dir, f"dialog_{idx}.json")
+            write_dialog_to_file(dialog, dialog_path)
+            logger.info("Wrote dialog %d to %s", idx, dialog_path)
+            
+            voiceover_path = output_dir / f"voiceover_{idx}.mp3"
+            write_voiceover_to_file(audio_data, voiceover_path)
+            
+            # Print to console for immediate feedback
+            print(f"Keyframe {idx} Description:\n{desc}\n")
+            print(f"Keyframe {idx} Dialog/Narration:\n{dialog}\n")
+            print(f"Voiceover saved to: {voiceover_path}\n")
+            print("=" * 80)
         
-        # Print to console for immediate feedback
-        print(f"Keyframe {idx} Description:\n{desc}\n")
-        print(f"Keyframe {idx} Dialog/Narration:\n{dialog}\n")
-        print(f"Voiceover saved to: {voiceover_path}\n")
-        print("=" * 80)
-    
-    # Generate motion for the first keyframe if requested
-    if args.motion and leonardo_client and first_keyframe_image_id:
-        print(f"\nGenerating motion for first keyframe... {image_id}")
-        generate_motion_for_image(
-            leonardo_client,
-            first_keyframe_image_id,
-            Path(args.images)
-        )
+        # Process completed image generations and start motion generation
+        if args.motion:
+            for idx, (desc, image_result) in image_generation_tasks.items():
+                _, _, image_id = image_result
+                if image_id:
+                    print(f"\nStarting motion generation for keyframe {idx}...")
+                    generate_motion_for_image(
+                        leonardo_client,
+                        image_id,
+                        Path(args.images),
+                        idx
+                    )
+                else:
+                    logger.error(f"Image generation failed for keyframe {idx}, skipping motion generation")
+                    print(f"Failed to generate motion for keyframe {idx} due to failed image generation")
 
 if __name__ == "__main__":
     main()
