@@ -80,6 +80,11 @@ struct CreateTabView: View {
     
     @State private var currentPickerType: FilePickerType?
     
+    // Add these state variables at the top with other @State variables
+    @State private var isProcessingPairs = false
+    @State private var testPairs: [(videoURL: URL, audioURL: URL)] = []
+    @State private var showingFolderPicker = false
+    
     // Shared instances
     private let functions = Functions.functions(region: "us-central1")
     private let db = Firestore.firestore()
@@ -465,6 +470,38 @@ struct CreateTabView: View {
                     .cornerRadius(12)
                 }
                 
+                // Add this inside fileOperationsSection, before the merge files section
+                Button(action: {
+                    print("📁 Folder picker button tapped")
+                    currentPickerType = .both
+                    showingFolderPicker = true
+                }) {
+                    HStack {
+                        Image(systemName: "folder.badge.plus")
+                        Text("Process Folder")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [.blue, .purple]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
+                .fileImporter(
+                    isPresented: $showingFolderPicker,
+                    allowedContentTypes: [.folder],
+                    allowsMultipleSelection: false
+                ) { result in
+                    Task {
+                        await processFolderSelection(result)
+                    }
+                }
+                
                 // Merge button
                 if sandboxVideoURL != nil && sandboxAudioURL != nil {
                     Button(action: { Task { await mergeFiles() } }) {
@@ -844,6 +881,149 @@ struct CreateTabView: View {
         }
         
         isMerging = false
+    }
+    
+    // Add this function with other private functions
+    private func processFolderSelection(_ result: Result<[URL], Error>) async {
+        do {
+            guard let folderURL = try result.get().first else { return }
+            
+            print("📂 Selected folder: \(folderURL.lastPathComponent)")
+            
+            guard folderURL.startAccessingSecurityScopedResource() else {
+                print("❌ Failed to access folder")
+                alertMessage = "Failed to access selected folder"
+                showAlert = true
+                return
+            }
+            defer { folderURL.stopAccessingSecurityScopedResource() }
+            
+            // Get folder contents
+            let fileManager = FileManager.default
+            let contents = try fileManager.contentsOfDirectory(
+                at: folderURL,
+                includingPropertiesForKeys: [.contentTypeKey],
+                options: [.skipsHiddenFiles]
+            )
+            
+            // Function to extract number from filename
+            func extractNumber(from filename: String) -> Int? {
+                let pattern = "\\d+"  // Match one or more digits
+                if let range = filename.range(of: pattern, options: .regularExpression) {
+                    return Int(filename[range])
+                }
+                return nil
+            }
+            
+            // Separate videos and audio files with their numbers
+            var numberedVideos: [(number: Int, url: URL)] = []
+            var numberedAudios: [(number: Int, url: URL)] = []
+            
+            for url in contents {
+                guard let number = extractNumber(from: url.lastPathComponent) else { continue }
+                guard let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType else { continue }
+                
+                if type.conforms(to: .movie) || type.conforms(to: UTType("public.mpeg-4")!) {
+                    numberedVideos.append((number, url))
+                } else if type.conforms(to: .audio) || type.conforms(to: UTType("public.mp3")!) {
+                    numberedAudios.append((number, url))
+                }
+            }
+            
+            // Sort by number
+            numberedVideos.sort { $0.number < $1.number }
+            numberedAudios.sort { $0.number < $1.number }
+            
+            print("📊 Found \(numberedVideos.count) videos and \(numberedAudios.count) audio files")
+            
+            // Create pairs by matching numbers
+            var pairs: [(videoURL: URL, audioURL: URL)] = []
+            var processedNumbers = Set<Int>()
+            
+            for videoItem in numberedVideos {
+                if let matchingAudio = numberedAudios.first(where: { $0.number == videoItem.number }) {
+                    if !processedNumbers.contains(videoItem.number) {
+                        // Copy files to app sandbox
+                        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                        let videoDestination = documentsURL.appendingPathComponent("temp_\(videoItem.number)_\(videoItem.url.lastPathComponent)")
+                        let audioDestination = documentsURL.appendingPathComponent("temp_\(videoItem.number)_\(matchingAudio.url.lastPathComponent)")
+                        
+                        do {
+                            try fileManager.copyItem(at: videoItem.url, to: videoDestination)
+                            try fileManager.copyItem(at: matchingAudio.url, to: audioDestination)
+                            pairs.append((videoURL: videoDestination, audioURL: audioDestination))
+                            processedNumbers.insert(videoItem.number)
+                            print("✅ Paired files with number \(videoItem.number)")
+                        } catch {
+                            print("❌ Error copying files for number \(videoItem.number): \(error)")
+                        }
+                    }
+                } else {
+                    print("⚠️ No matching audio found for video number \(videoItem.number)")
+                }
+            }
+            
+            if pairs.isEmpty {
+                alertMessage = "No valid video-audio pairs found in folder"
+                showAlert = true
+                return
+            }
+            
+            // Process the pairs and stitch them together
+            isProcessingPairs = true
+            let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            do {
+                let finalOutputURL = documentsURL.appendingPathComponent("final_stitched_\(UUID().uuidString).mp4")
+                
+                let stitchedURL = try await VideoMerger.processPairsAndStitch(
+                    pairs: pairs,
+                    outputURL: finalOutputURL
+                )
+                
+                // Save to Photos library
+                try await PHPhotoLibrary.shared().performChanges {
+                    let request = PHAssetCreationRequest.forAsset()
+                    request.addResource(with: .video, fileURL: stitchedURL, options: nil)
+                }
+                
+                print("🧹 Cleaning up temporary files...")
+                
+                // Clean up all files in the documents directory that start with "temp_" or "merged_"
+                let tempFiles = try fileManager.contentsOfDirectory(at: documentsURL, includingPropertiesForKeys: nil)
+                for fileURL in tempFiles {
+                    let filename = fileURL.lastPathComponent
+                    if filename.hasPrefix("temp_") || filename.hasPrefix("merged_") || filename.hasPrefix("final_stitched_") {
+                        try? fileManager.removeItem(at: fileURL)
+                        print("🗑️ Removed: \(filename)")
+                    }
+                }
+                
+                alertMessage = "Successfully processed and stitched \(pairs.count) pairs into a single video. Saved to Photos."
+                print("✅ All temporary files cleaned up")
+                
+            } catch {
+                alertMessage = "Error processing pairs: \(error.localizedDescription)"
+                
+                // Clean up any remaining temporary files even if there was an error
+                print("🧹 Cleaning up temporary files after error...")
+                let tempFiles = try? fileManager.contentsOfDirectory(at: documentsURL, includingPropertiesForKeys: nil)
+                tempFiles?.forEach { fileURL in
+                    let filename = fileURL.lastPathComponent
+                    if filename.hasPrefix("temp_") || filename.hasPrefix("merged_") || filename.hasPrefix("final_stitched_") {
+                        try? fileManager.removeItem(at: fileURL)
+                        print("🗑️ Removed: \(filename)")
+                    }
+                }
+            }
+            
+            showAlert = true
+            isProcessingPairs = false
+            
+        } catch {
+            print("❌ Folder selection error: \(error)")
+            alertMessage = "Error selecting folder: \(error.localizedDescription)"
+            showAlert = true
+        }
     }
 }
 

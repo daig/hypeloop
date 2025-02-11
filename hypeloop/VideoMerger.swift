@@ -66,31 +66,31 @@ class VideoMerger {
         // Case A: Audio is longer than video
         if audioDuration > videoDuration {
             print("├─ Case: Audio is longer than video")
-            print("├─ Strategy: Extending last video frame")
+            print("├─ Strategy: Stretching video to match audio duration")
             print("└─ Extension needed: \(String(format: "%.2f", audioDuration - videoDuration))s")
             
-            // Insert the video track for its full duration
+            // Calculate the speed ratio needed to stretch the video
+            let speedRatio = videoDuration / audioDuration
+            print("🎬 Adjusting video speed:")
+            print("├─ Original duration: \(String(format: "%.2f", videoDuration))s")
+            print("├─ Target duration: \(String(format: "%.2f", audioDuration))s")
+            print("└─ Speed ratio: \(String(format: "%.2f", speedRatio))x")
+            
+            // Create a time range for the entire video
+            let timeRange = CMTimeRange(start: .zero, duration: videoAsset.duration)
+            
+            // Insert the video track with the new duration
             try compositionVideoTrack.insertTimeRange(
-                CMTimeRange(start: .zero, duration: videoAsset.duration),
+                timeRange,
                 of: videoTrack,
                 at: .zero
             )
             
-            // Create a freeze frame for the remaining duration
-            let extraDuration = CMTime(seconds: audioDuration - videoDuration, preferredTimescale: 600)
-            let lastFrameTime = CMTimeSubtract(videoAsset.duration, CMTime(value: 1, timescale: 30))
-            
-            print("🖼️ Creating freeze frame...")
-            // Insert the freeze frame
-            try compositionVideoTrack.insertTimeRange(
-                CMTimeRange(start: lastFrameTime, duration: CMTime(value: 1, timescale: 30)),
-                of: videoTrack,
-                at: videoAsset.duration
+            // Scale the video track to match audio duration
+            compositionVideoTrack.scaleTimeRange(
+                timeRange,
+                toDuration: CMTime(seconds: audioDuration, preferredTimescale: 600)
             )
-            
-            // Set the time mapping to hold the last frame
-            let timeRange = CMTimeRangeMake(start: videoAsset.duration, duration: extraDuration)
-            compositionVideoTrack.scaleTimeRange(timeRange, toDuration: extraDuration)
             
             // Insert the full audio track
             try compositionAudioTrack.insertTimeRange(
@@ -98,7 +98,7 @@ class VideoMerger {
                 of: audioTrack,
                 at: .zero
             )
-            print("✅ Successfully extended video with freeze frame")
+            print("✅ Successfully stretched video to match audio duration")
         }
         // Case B: Audio is shorter than video
         else if audioDuration < videoDuration {
@@ -264,5 +264,164 @@ class VideoMerger {
         audioEngine.detach(player)
         
         return tempURL
+    }
+    
+    /// Process multiple pairs of video and audio files, merge each pair, then stitch all merged videos together
+    /// - Parameters:
+    ///   - pairs: Array of tuples containing video and audio URLs to merge
+    ///   - outputURL: URL where the final stitched video will be saved
+    /// - Returns: URL of the final stitched video
+    static func processPairsAndStitch(pairs: [(videoURL: URL, audioURL: URL)], outputURL: URL) async throws -> URL {
+        print("\n🎬 Starting batch processing and stitching of \(pairs.count) pairs...")
+        var mergedFiles: [URL] = []
+        
+        // First, merge all pairs
+        for (index, pair) in pairs.enumerated() {
+            print("\n📦 Processing pair \(index + 1) of \(pairs.count)")
+            
+            do {
+                // Create temporary output URL for merged file
+                let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let mergedURL = documentsURL.appendingPathComponent("merged_\(UUID().uuidString).mp4")
+                
+                // Merge the pair
+                let mergedFile = try await mergeAudioIntoVideo(
+                    videoURL: pair.videoURL,
+                    audioURL: pair.audioURL,
+                    outputURL: mergedURL
+                )
+                
+                mergedFiles.append(mergedFile)
+                print("✅ Successfully processed pair \(index + 1)")
+                
+            } catch {
+                print("❌ Error processing pair \(index + 1): \(error)")
+                // Continue with next pair instead of throwing
+                continue
+            }
+        }
+        
+        if mergedFiles.isEmpty {
+            throw VideoMergerError.exportFailed(nil)
+        }
+        
+        // Then stitch all merged files together
+        print("\n🎬 Stitching \(mergedFiles.count) merged files together...")
+        let stitchedURL = try await stitchVideos(videoURLs: mergedFiles, outputURL: outputURL)
+        
+        // Clean up merged files
+        for url in mergedFiles {
+            try? FileManager.default.removeItem(at: url)
+        }
+        
+        print("\n📊 Final Processing Summary:")
+        print("├─ Total pairs: \(pairs.count)")
+        print("├─ Successfully merged: \(mergedFiles.count)")
+        print("└─ Final video: \(stitchedURL.lastPathComponent)")
+        
+        return stitchedURL
+    }
+    
+    /// Stitches multiple MP4 files together in sequence
+    /// - Parameters:
+    ///   - videoURLs: Array of URLs for the MP4 files to stitch together
+    ///   - outputURL: URL where the final stitched video will be saved
+    /// - Returns: URL of the stitched video file
+    static func stitchVideos(videoURLs: [URL], outputURL: URL) async throws -> URL {
+        print("\n🎬 Starting video stitching process...")
+        print("├─ Number of videos: \(videoURLs.count)")
+        
+        // Create composition
+        let composition = AVMutableComposition()
+        
+        // Create tracks for video and audio
+        guard let compositionVideoTrack = composition.addMutableTrack(
+            withMediaType: .video,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ),
+        let compositionAudioTrack = composition.addMutableTrack(
+            withMediaType: .audio,
+            preferredTrackID: kCMPersistentTrackID_Invalid
+        ) else {
+            print("❌ Failed to create composition tracks")
+            throw VideoMergerError.exportSessionCreationFailed
+        }
+        
+        // Keep track of current time for sequential insertion
+        var currentTime = CMTime.zero
+        
+        // Process each video
+        for (index, videoURL) in videoURLs.enumerated() {
+            print("\n📼 Processing video \(index + 1) of \(videoURLs.count)")
+            
+            // Create asset
+            let asset = AVURLAsset(url: videoURL)
+            try await asset.load(.tracks, .duration)
+            
+            // Get video track
+            guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
+                print("❌ No video track found in video \(index + 1)")
+                continue
+            }
+            
+            // Get audio track
+            guard let audioTrack = try await asset.loadTracks(withMediaType: .audio).first else {
+                print("❌ No audio track found in video \(index + 1)")
+                continue
+            }
+            
+            // Get the preferred transform of the first video to maintain consistent orientation
+            if index == 0 {
+                let preferredTransform = try await videoTrack.load(.preferredTransform)
+                compositionVideoTrack.preferredTransform = preferredTransform
+            }
+            
+            // Insert video track
+            try compositionVideoTrack.insertTimeRange(
+                CMTimeRange(start: .zero, duration: asset.duration),
+                of: videoTrack,
+                at: currentTime
+            )
+            
+            // Insert audio track
+            try compositionAudioTrack.insertTimeRange(
+                CMTimeRange(start: .zero, duration: asset.duration),
+                of: audioTrack,
+                at: currentTime
+            )
+            
+            // Update current time
+            currentTime = CMTimeAdd(currentTime, asset.duration)
+            print("✅ Added video \(index + 1) to timeline")
+        }
+        
+        print("\n📤 Exporting stitched video...")
+        // Create export session
+        guard let exportSession = AVAssetExportSession(
+            asset: composition,
+            presetName: AVAssetExportPresetHighestQuality
+        ) else {
+            print("❌ Failed to create export session")
+            throw VideoMergerError.exportSessionCreationFailed
+        }
+        
+        // Configure export session
+        exportSession.outputURL = outputURL
+        exportSession.outputFileType = .mp4
+        exportSession.shouldOptimizeForNetworkUse = true
+        
+        // Export the file
+        await exportSession.export()
+        
+        // Check export status
+        if exportSession.status == .completed {
+            print("✅ Export completed successfully")
+            print("📁 Saved to: \(outputURL.lastPathComponent)")
+            print("└─ Duration: \(CMTimeGetSeconds(currentTime))s")
+            return outputURL
+        } else {
+            print("❌ Export failed with error: \(String(describing: exportSession.error))")
+            throw VideoMergerError.exportFailed(exportSession.error)
+        }
     }
 } 
