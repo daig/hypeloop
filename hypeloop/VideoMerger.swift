@@ -294,9 +294,17 @@ class VideoMerger {
                 mergedFiles.append(mergedFile)
                 print("✅ Successfully processed pair \(index + 1)")
                 
+                // Clean up the input files after successful merge
+                try? FileManager.default.removeItem(at: pair.videoURL)
+                try? FileManager.default.removeItem(at: pair.audioURL)
+                print("🗑️ Cleaned up input files for pair \(index + 1)")
+                
             } catch {
                 print("❌ Error processing pair \(index + 1): \(error)")
-                // Continue with next pair instead of throwing
+                // Clean up the input files even if merge failed
+                try? FileManager.default.removeItem(at: pair.videoURL)
+                try? FileManager.default.removeItem(at: pair.audioURL)
+                print("🗑️ Cleaned up input files for failed pair \(index + 1)")
                 continue
             }
         }
@@ -307,14 +315,29 @@ class VideoMerger {
         
         // Then stitch all merged files together
         print("\n🎬 Stitching \(mergedFiles.count) merged files together...")
-        let stitchedURL = try await stitchVideos(videoURLs: mergedFiles, outputURL: outputURL)
+        let stitchedURL: URL
+        do {
+            stitchedURL = try await stitchVideos(videoURLs: mergedFiles, outputURL: outputURL)
+            
+            // Clean up the intermediate merged files after successful stitching
+            for url in mergedFiles {
+                try? FileManager.default.removeItem(at: url)
+                print("🗑️ Cleaned up merged file: \(url.lastPathComponent)")
+            }
+        } catch {
+            // Clean up the intermediate merged files if stitching failed
+            for url in mergedFiles {
+                try? FileManager.default.removeItem(at: url)
+                print("🗑️ Cleaned up merged file after error: \(url.lastPathComponent)")
+            }
+            throw error
+        }
         
         print("\n📊 Final Processing Summary:")
         print("├─ Total pairs: \(pairs.count)")
         print("├─ Successfully merged: \(mergedFiles.count)")
         print("└─ Final video: \(stitchedURL.lastPathComponent)")
         
-        // Return the URL without cleaning up - let the calling function handle cleanup after Photos export
         return stitchedURL
     }
     
