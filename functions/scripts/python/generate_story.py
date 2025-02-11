@@ -25,7 +25,7 @@ def generate_image_for_keyframe(leonardo_client: LeonardoAPI,
         style = LeonardoStyles(visual_style.lower())
         
         # Generate the image
-        generation_result = leonardo_client.generate_image(keyframe_desc, style)
+        generation_result = leonardo_client.generate_image_for_keyframe(keyframe_desc, style)
         if not generation_result:
             logger.error(f"Failed to generate image for keyframe {keyframe_num}")
             return None, None, None
@@ -66,12 +66,12 @@ def generate_image_for_keyframe(leonardo_client: LeonardoAPI,
     return None, None, None
 
 def generate_motion_for_image(leonardo_client: LeonardoAPI,
-                            generation_id: str,
+                            image_id: str,
                             output_dir: Path) -> None:
     """Generate a motion video for an image using the Leonardo API."""
     try:
         # Generate motion using the SVD endpoint
-        motion_generation_id = leonardo_client.generate_motion(generation_id)
+        motion_generation_id = leonardo_client.generate_motion(image_id)
         if not motion_generation_id:
             logger.error("Failed to start motion generation")
             return
@@ -81,24 +81,32 @@ def generate_motion_for_image(leonardo_client: LeonardoAPI,
         if motion_result:
             video_url = motion_result.get("url")
             if video_url:
+                logger.info(f"Got video URL: {video_url}")
                 # Download video
                 video_path = output_dir / "keyframe_1_motion.mp4"
                 
                 # Use requests to download the video
                 import requests
+                logger.info(f"Downloading video from {video_url} to {video_path}")
                 response = requests.get(video_url)
-                if response.status_code == 200:
+                logger.info(f"Download response status: {response.status_code}")
+                logger.info(f"Download response headers: {response.headers}")
+                logger.info(f"Download response content length: {len(response.content)} bytes")
+                
+                if response.status_code == 200 and len(response.content) > 0:
                     with open(video_path, "wb") as f:
                         f.write(response.content)
                     logger.info(f"Saved motion video to {video_path}")
                 else:
-                    logger.error(f"Failed to download motion video: {response.status_code}")
+                    logger.error(f"Failed to download motion video: Empty response or bad status {response.status_code}")
+                    if len(response.content) > 0:
+                        logger.error(f"Response content: {response.content[:200]}...")  # Log first 200 bytes
             else:
                 logger.error("No video URL in motion generation response")
         else:
             logger.error("Motion generation failed")
     except Exception as e:
-        logger.error(f"Error generating motion: {e}")
+        logger.error(f"Error generating motion: {e}", exc_info=True)  # Added full traceback
 
 def main():
     parser = argparse.ArgumentParser(description="Generate a story based on theme keywords.")
@@ -200,7 +208,7 @@ def main():
     
     # Generate motion for the first keyframe if requested
     if args.motion and leonardo_client and first_keyframe_image_id:
-        print("\nGenerating motion for first keyframe...")
+        print(f"\nGenerating motion for first keyframe... {image_id}")
         generate_motion_for_image(
             leonardo_client,
             first_keyframe_image_id,

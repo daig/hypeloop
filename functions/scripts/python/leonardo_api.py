@@ -1,5 +1,6 @@
 import requests
 import time
+import json
 from enum import Enum
 from typing import Dict, Optional
 from dataclasses import dataclass
@@ -120,8 +121,8 @@ class LeonardoAPI:
         """
         data = {
             "imageId": image_id,
-            "motionStrength": 5,
-            "isPublic": False
+            "motionStrength": 2,
+            "isPublic": True
         }
 
         response = requests.post(
@@ -139,7 +140,7 @@ class LeonardoAPI:
 
     def poll_motion_status(self, generation_id: "LeonardoAPI.GenerationId") -> Optional[dict]:
         """Poll the motion generation status until complete or failed."""
-        url = f"{self.base_url}/generations-motion-svd/{generation_id.id}"
+        url = f"{self.base_url}/generations/{generation_id.id}"
         
         while True:
             response = requests.get(url, headers=self.headers)
@@ -148,12 +149,20 @@ class LeonardoAPI:
                 return None
                 
             data = response.json()
-            generation_data = data.get("generations_motion_by_pk", {})
+            print(f"Full motion status response: {json.dumps(data, indent=2)}")
+            
+            generation_data = data.get("generations_by_pk", {})
             status = generation_data.get("status")
             print(f"Motion generation status: {status}")
             
             if status == "COMPLETE":
-                return generation_data
+                # For motion generations, the video URL is in generated_images[0].motionMP4URL
+                generated_images = generation_data.get("generated_images", [])
+                if generated_images and generated_images[0].get("motionMP4URL"):
+                    video_url = generated_images[0]["motionMP4URL"]
+                    return {"url": video_url}
+                print("No video URL found in completed generation")
+                return None
             elif status in ["FAILED", "DELETED"]:
                 print(f"Motion generation failed with status: {status}")
                 return None
