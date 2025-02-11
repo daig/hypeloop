@@ -19,6 +19,7 @@ from prompts import (
     VISUAL_STYLE_PROMPT
 )
 from enum import Enum
+from tts_core import generate_speech_from_text
 
 class LeonardoStyles(str, Enum):
     RENDER_3D = "RENDER_3D"
@@ -214,8 +215,36 @@ def determine_visual_style(script: str) -> LeonardoStyles:
     
     return style
 
+@task
+def generate_voiceover(character: Character, text: str) -> bytes:
+    """
+    Generates audio voiceover for the given character and text using TTS.
+    
+    Args:
+        character: The character type (narrator, child, etc.)
+        text: The text to convert to speech
+        
+    Returns:
+        Audio data as bytes
+    """
+    logger.info(f"Generating voiceover for {character}: {text[:50]}...")
+    start_time = time.time()
+    
+    try:
+        response = generate_speech_from_text(text, character=character.value)
+        audio_data = response.read()
+        
+        elapsed_time = time.time() - start_time
+        logger.info(f"Voiceover generation completed in {elapsed_time:.2f} seconds")
+        
+        return audio_data
+        
+    except Exception as e:
+        logger.error(f"Failed to generate voiceover: {str(e)}")
+        raise
+
 @entrypoint(checkpointer=MemorySaver())
-def generate_story(inputs: Dict[str, List[str]]) -> List[Tuple[str, Tuple[Character, str], str]]:
+def generate_story(inputs: Dict[str, List[str]]) -> List[Tuple[str, Tuple[Character, str], str, bytes]]:
     """
     Public interface function that ties the OpenAI steps together.
 
@@ -223,7 +252,7 @@ def generate_story(inputs: Dict[str, List[str]]) -> List[Tuple[str, Tuple[Charac
       - inputs: Dictionary containing 'keywords' list
 
     Output:
-      - A list of tuples, where each tuple is (keyframe description, keyframe dialog/narration, visual style).
+      - A list of tuples, where each tuple is (keyframe description, keyframe dialog/narration, visual style, audio_data).
     """
     logger.info("Starting story generation process")
     start_time = time.time()
@@ -238,20 +267,30 @@ def generate_story(inputs: Dict[str, List[str]]) -> List[Tuple[str, Tuple[Charac
     keyframes = extract_keyframes(script).result()
     visual_style = determine_visual_style(script).result()
     
-    # Launch all dialog extraction tasks in parallel
-    logger.info("Launching parallel dialog extraction for %d keyframes", len(keyframes))
-    dialog_tasks = [
-        extract_dialog(script, kf["description"])
-        for kf in keyframes
-    ]
+    # Launch dialog extraction and voiceover generation tasks in parallel
+    logger.info("Launching parallel dialog and voiceover generation for %d keyframes", len(keyframes))
+    dialog_tasks = []
+    voiceover_tasks = []
     
-    # Collect results after all tasks complete
+    for kf in keyframes:
+        # Start dialog extraction for this keyframe
+        dialog_task = extract_dialog(script, kf["description"])
+        dialog_tasks.append(dialog_task)
+        
+        # Once dialog is ready, start voiceover generation
+        dialog_result = dialog_task.result()
+        character, text = dialog_result
+        voiceover_task = generate_voiceover(character, text)
+        voiceover_tasks.append(voiceover_task)
+    
+    # Collect all results
     dialogs = [task.result() for task in dialog_tasks]
+    voiceovers = [task.result() for task in voiceover_tasks]
     
     # Combine results
     results = [
-        (kf["description"], dialog, visual_style)
-        for kf, dialog in zip(keyframes, dialogs)
+        (kf["description"], dialog, visual_style, voiceover)
+        for kf, dialog, voiceover in zip(keyframes, dialogs, voiceovers)
     ]
     
     total_time = time.time() - start_time

@@ -118,6 +118,15 @@ def write_dialog_to_file(dialog: Tuple[Character, str], output_path: str):
     with open(output_path, 'w') as f:
         json.dump(dialog_dict, f, indent=2)
 
+def write_voiceover_to_file(audio_data: bytes, output_path: Path) -> None:
+    """Write voiceover audio data to an MP3 file."""
+    try:
+        with open(output_path, 'wb') as f:
+            f.write(audio_data)
+        logger.info(f"Saved voiceover to {output_path}")
+    except Exception as e:
+        logger.error(f"Failed to save voiceover to {output_path}: {e}")
+
 def main():
     parser = argparse.ArgumentParser(description="Generate a story based on theme keywords.")
     parser.add_argument("keywords", nargs="+", help='Theme keywords for the story (e.g., "adventure" "mystical forest")')
@@ -183,7 +192,7 @@ def main():
     first_keyframe_image_id = None
     
     # Write each keyframe and dialog to separate files, and generate images if requested
-    for idx, (desc, dialog, _) in enumerate(story, start=1):
+    for idx, (desc, dialog, _, audio_data) in enumerate(story, start=1):
         # Write keyframe description
         keyframe_file = output_dir / f"keyframe_{idx}.txt"
         with open(keyframe_file, "w", encoding="utf-8") as f:
@@ -191,9 +200,13 @@ def main():
         logger.info("Wrote keyframe %d to %s", idx, keyframe_file)
         
         # Write dialog to file
-        dialog_path = os.path.join(output_dir, f"dialog_{idx}.json")  # Changed from keyframe_ to dialog_
+        dialog_path = os.path.join(output_dir, f"dialog_{idx}.json")
         write_dialog_to_file(dialog, dialog_path)
         logger.info("Wrote dialog %d to %s", idx, dialog_path)
+        
+        # Write voiceover audio to file
+        voiceover_path = output_dir / f"voiceover_{idx}.mp3"
+        write_voiceover_to_file(audio_data, voiceover_path)
         
         # Generate image if requested
         if leonardo_client and args.images:
@@ -213,6 +226,7 @@ def main():
         # Print to console for immediate feedback
         print(f"Keyframe {idx} Description:\n{desc}\n")
         print(f"Keyframe {idx} Dialog/Narration:\n{dialog}\n")
+        print(f"Voiceover saved to: {voiceover_path}\n")
         print("=" * 80)
     
     # Generate motion for the first keyframe if requested
