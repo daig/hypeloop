@@ -37,9 +37,15 @@ class LeonardoStyles(str, Enum):
     STOCK_PHOTO = "STOCK_PHOTO"
     WATERCOLOR = "WATERCOLOR"
 
+class Character(str, Enum):
+    NARRATOR = "NARRATOR"
 
 class VisualStyleResponse(BaseModel):
     style: LeonardoStyles
+
+class DialogResponse(BaseModel):
+    character: Character
+    text: str
 
 # Set up logging configuration
 logging.basicConfig(
@@ -154,9 +160,10 @@ def extract_keyframes(script: str) -> List[Dict[str, str]]:
     return [kf.model_dump() for kf in keyframes]
 
 @task
-def extract_dialog(script: str, keyframe_description: str) -> str:
+def extract_dialog(script: str, keyframe_description: str) -> Tuple[Character, str]:
     """
     Combines the full screenplay and a keyframe description to extract dialogue and narration.
+    Returns a tuple of (character, text).
     """
     logger.debug("Extracting dialog for keyframe: %s", keyframe_description[:100] + "...")
     start_time = time.time()
@@ -165,15 +172,18 @@ def extract_dialog(script: str, keyframe_description: str) -> str:
         keyframe_description=keyframe_description,
         script=script
     )
-    response = invoke_chat_completion(prompt)
-    dialog = response.content if hasattr(response, "content") else response
-
-    log_prompt_and_response(prompt, dialog, f"Dialog Extraction (Keyframe: {keyframe_description[:50]}...)")
+    response = invoke_chat_completion(prompt, response_format=DialogResponse)
+    dialog = response.choices[0].message.parsed
+    
+    # Create a JSON-compatible dict for logging
+    dialog_dict = {"character": dialog.character, "text": dialog.text}
+    log_prompt_and_response(prompt, str(dialog_dict), 
+                          f"Dialog Extraction (Keyframe: {keyframe_description[:50]}...)")
     
     elapsed_time = time.time() - start_time
     logger.debug("Dialog extraction completed in %.2f seconds", elapsed_time)
     
-    return dialog
+    return dialog.character, dialog.text
 
 @task
 def determine_visual_style(script: str) -> LeonardoStyles:
@@ -199,7 +209,7 @@ def determine_visual_style(script: str) -> LeonardoStyles:
     return style
 
 @entrypoint(checkpointer=MemorySaver())
-def generate_story(inputs: Dict[str, List[str]]) -> List[Tuple[str, str, str]]:
+def generate_story(inputs: Dict[str, List[str]]) -> List[Tuple[str, Tuple[Character, str], str]]:
     """
     Public interface function that ties the OpenAI steps together.
 
@@ -222,13 +232,21 @@ def generate_story(inputs: Dict[str, List[str]]) -> List[Tuple[str, str, str]]:
     keyframes = extract_keyframes(script).result()
     visual_style = determine_visual_style(script).result()
     
-    logger.info("Processing dialog for %d keyframes", len(keyframes))
-    results: List[Tuple[str, str, str]] = []
-    for i, kf in enumerate(keyframes, 1):
-        logger.debug("Processing dialog for keyframe %d/%d", i, len(keyframes))
-        dialog = extract_dialog(script, kf["description"]).result()
-        # Include the visual style with each keyframe
-        results.append((kf["description"], dialog, visual_style))
+    # Launch all dialog extraction tasks in parallel
+    logger.info("Launching parallel dialog extraction for %d keyframes", len(keyframes))
+    dialog_tasks = [
+        extract_dialog(script, kf["description"])
+        for kf in keyframes
+    ]
+    
+    # Collect results after all tasks complete
+    dialogs = [task.result() for task in dialog_tasks]
+    
+    # Combine results
+    results = [
+        (kf["description"], dialog, visual_style)
+        for kf, dialog in zip(keyframes, dialogs)
+    ]
     
     total_time = time.time() - start_time
     logger.info("Story generation completed in %.2f seconds", total_time)

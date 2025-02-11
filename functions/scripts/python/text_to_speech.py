@@ -24,15 +24,18 @@ def generate_speech(text, output_path, voice="alloy", model="tts-1"):
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
             
-        # Generate speech
+        # Generate speech with streaming response
         response = client.audio.speech.create(
             model=model,
             voice=voice,
             input=text
         )
         
-        # Save to file
-        response.stream_to_file(output_path)
+        # Save to file using the streaming response
+        with open(output_path, 'wb') as file:
+            for chunk in response.iter_bytes():
+                file.write(chunk)
+                
         print(f"Successfully generated audio file: {output_path}")
         
     except Exception as e:

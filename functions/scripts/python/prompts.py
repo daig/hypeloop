@@ -4,19 +4,19 @@ Contains all prompts used in the story generation process.
 
 # Configuration
 NUM_KEYFRAMES = 4
-WORDS_PER_KEYFRAME = 125  # Approximate words per scene for good pacing
+WORDS_PER_KEYFRAME = 15  # Reduced to ~5 seconds of narration
 
-SCRIPT_GENERATION_PROMPT = f'''You are an expert screenwriter tasked with creating a concise, impactful screenplay.
+SCRIPT_GENERATION_PROMPT = f'''You are an expert storyteller tasked with creating a concise, impactful narrative.
 Theme Keywords: {{keywords}}.
 
 Requirements:
-- Write a very short screenplay (approximately {NUM_KEYFRAMES * WORDS_PER_KEYFRAME} words) that can be effectively told in {NUM_KEYFRAMES} key scenes.
+- Write a very short story (approximately {NUM_KEYFRAMES * WORDS_PER_KEYFRAME} words) that can be effectively told in {NUM_KEYFRAMES} brief scenes.
 - Focus on a single, clear story arc with a beginning, middle, and end.
-- Introduce only essential characters and provide vivid descriptions of key settings and actions.
-- Include both narration and dialogue that evoke strong visual imagery and emotion.
-- Keep the story focused and tight - each scene should have clear visual impact.
+- Tell the entire story through a single narrator's voice - no character dialogue.
+- Use concise, impactful language - each scene should be about 10-15 words.
+- Write in a way that would work well when read aloud in about 5 seconds per scene.
 
-Please produce the complete screenplay in a structured format with clear scene headings.
+Please produce the complete story in a structured format with clear scene headings.
 '''
 
 VISUAL_STYLE_PROMPT = '''You are a visual art director tasked with determining the most suitable visual style for a screenplay.
@@ -54,21 +54,20 @@ Script:
 
 Return exactly {NUM_KEYFRAMES} keyframes, where each keyframe has a 'title' and 'description' field.'''
 
-DIALOG_EXTRACTION_PROMPT = '''You are a narrative editor. Given the complete screenplay and a specific keyframe description, extract or rewrite the dialogue and narration that best correspond to that keyframe.
+DIALOG_EXTRACTION_PROMPT = '''You are a narrative editor. Given the complete story and a specific keyframe description, craft a brief narration that captures the essence of this moment.
 
 Keyframe Description:
 {keyframe_description}
 
-Script:
+Story:
 {script}
 
-For this keyframe, please provide:
-- A "Narration" section that describes the overall scene context.
-- A "Dialogue" section that includes any character lines, clearly indicating the speaker for each line.
+Create a single brief narration that:
+- Uses approximately 10-15 words
+- Captures the most important action or moment
+- Uses vivid, concise language
+- Can be read aloud in about 5 seconds
 
 Output Format:
-Narration: [Narrative text]
-Dialogue:
-  - [Character Name]: [Dialogue text]
-  - [Character Name]: [Dialogue text] (if applicable)
+Narration: [Brief narrative text, ~5 seconds when read aloud]
 ''' 

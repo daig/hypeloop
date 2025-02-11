@@ -7,9 +7,10 @@ import logging
 import json
 import os
 from pathlib import Path
-from story_generator import generate_story, logger
+from story_generator import generate_story, logger, Character
 from leonardo_api import LeonardoAPI, LeonardoStyles
 from dotenv import load_dotenv
+from typing import Tuple
 
 def generate_image_for_keyframe(leonardo_client: LeonardoAPI, 
                               keyframe_desc: str, 
@@ -108,6 +109,15 @@ def generate_motion_for_image(leonardo_client: LeonardoAPI,
     except Exception as e:
         logger.error(f"Error generating motion: {e}", exc_info=True)  # Added full traceback
 
+def write_dialog_to_file(dialog: Tuple[Character, str], output_path: str):
+    """Write dialog tuple as JSON to file."""
+    dialog_dict = {
+        "character": dialog[0],  # Character enum value
+        "text": dialog[1]        # Dialog text
+    }
+    with open(output_path, 'w') as f:
+        json.dump(dialog_dict, f, indent=2)
+
 def main():
     parser = argparse.ArgumentParser(description="Generate a story based on theme keywords.")
     parser.add_argument("keywords", nargs="+", help='Theme keywords for the story (e.g., "adventure" "mystical forest")')
@@ -180,11 +190,10 @@ def main():
             f.write(desc)
         logger.info("Wrote keyframe %d to %s", idx, keyframe_file)
         
-        # Write dialog/narration
-        dialog_file = output_dir / f"dialog_{idx}.txt"
-        with open(dialog_file, "w", encoding="utf-8") as f:
-            f.write(dialog)
-        logger.info("Wrote dialog %d to %s", idx, dialog_file)
+        # Write dialog to file
+        dialog_path = os.path.join(output_dir, f"dialog_{idx}.json")  # Changed from keyframe_ to dialog_
+        write_dialog_to_file(dialog, dialog_path)
+        logger.info("Wrote dialog %d to %s", idx, dialog_path)
         
         # Generate image if requested
         if leonardo_client and args.images:
