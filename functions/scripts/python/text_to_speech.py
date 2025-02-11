@@ -1,54 +1,42 @@
 import argparse
 import os
+import json
 from pathlib import Path
-from openai import OpenAI
-from dotenv import load_dotenv
+from tts_core import generate_speech_from_text
 
 def read_text_file(file_path):
-    """Read content from a text file."""
+    """Read content from a text file, supporting both plain text and JSON."""
     with open(file_path, 'r', encoding='utf-8') as file:
-        return file.read()
+        content = file.read()
+        try:
+            # Try to parse as JSON
+            return json.loads(content)
+        except json.JSONDecodeError:
+            # If not JSON, return as plain text with default character
+            return {'text': content, 'character': 'narrator'}
 
-def generate_speech(text, output_path, voice="alloy", model="tts-1"):
-    """Generate speech from text using OpenAI's TTS API."""
-    # Load environment variables from two directories up
-    env_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
-    load_dotenv(env_path)
-    
-    # Initialize OpenAI client
-    client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-    
-    try:
-        # Create output directory if it doesn't exist
-        output_dir = os.path.dirname(output_path)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
+def save_audio_response(response, output_path):
+    """Save the audio response to a file."""
+    # Create output directory if it doesn't exist
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        
+    # Save to file using the streaming response
+    with open(output_path, 'wb') as file:
+        for chunk in response.iter_bytes():
+            file.write(chunk)
             
-        # Generate speech with streaming response
-        response = client.audio.speech.create(
-            model=model,
-            voice=voice,
-            input=text
-        )
-        
-        # Save to file using the streaming response
-        with open(output_path, 'wb') as file:
-            for chunk in response.iter_bytes():
-                file.write(chunk)
-                
-        print(f"Successfully generated audio file: {output_path}")
-        
-    except Exception as e:
-        print(f"Error generating speech: {str(e)}")
-        raise
+    print(f"Successfully generated audio file: {output_path}")
 
 def main():
     parser = argparse.ArgumentParser(description='Convert text file to speech using OpenAI TTS API')
-    parser.add_argument('input_file', type=str, help='Path to the input text file')
+    parser.add_argument('input_file', type=str, help='Path to the input text/JSON file')
     parser.add_argument('--output', '-o', type=str, help='Path to the output audio file (default: input_file_name.mp3)',
                       default=None)
-    parser.add_argument('--voice', '-v', type=str, choices=['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'],
-                      default='alloy', help='Voice to use for TTS (default: alloy)')
+    parser.add_argument('--character', '-c', type=str, 
+                      choices=['narrator', 'child', 'elder', 'fairy', 'hero', 'villain'],
+                      default='narrator', help='Character voice to use (default: narrator)')
     parser.add_argument('--model', '-m', type=str, choices=['tts-1', 'tts-1-hd'],
                       default='tts-1', help='Model to use for TTS (default: tts-1)')
 
@@ -65,11 +53,18 @@ def main():
         args.output = str(input_path.with_suffix('.mp3'))
 
     try:
-        # Read input text
-        text = read_text_file(args.input_file)
+        # Read input content
+        content = read_text_file(args.input_file)
+        
+        # Use command line character if specified, otherwise use from JSON
+        character = args.character if args.character != 'narrator' else content.get('character', 'narrator')
+        text = content['text'] if isinstance(content, dict) else content
         
         # Generate speech
-        generate_speech(text, args.output, args.voice, args.model)
+        response = generate_speech_from_text(text, character.lower(), args.model)
+        
+        # Save the audio
+        save_audio_response(response, args.output)
         
     except Exception as e:
         print(f"Error: {str(e)}")

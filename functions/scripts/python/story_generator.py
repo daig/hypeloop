@@ -38,7 +38,13 @@ class LeonardoStyles(str, Enum):
     WATERCOLOR = "WATERCOLOR"
 
 class Character(str, Enum):
-    NARRATOR = "NARRATOR"
+    NARRATOR = "narrator"
+    CHILD = "child"
+    ELDER = "elder"
+    FAIRY = "fairy"
+    HERO = "hero"
+    VILLAIN = "villain"
+
 
 class VisualStyleResponse(BaseModel):
     style: LeonardoStyles
