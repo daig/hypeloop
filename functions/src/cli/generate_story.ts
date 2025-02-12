@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 
-import { program } from 'commander';
-import path from 'path';
-import fs from 'fs/promises';
-import dotenv from 'dotenv';
-import { LeonardoAPI } from '../leonardo_api';
-import { generateStory } from '../story_generator';
-import type { StoryInput } from '../story_generator';
-import { generateSpeechFromText } from '../tts_core';
-import type { Character, KeyframeScene } from '../schemas';
-import { spawn } from 'child_process';
-import { createLogger, format, transports } from 'winston';
+import {program} from 'commander';
+import * as path from 'path';
+import * as fs from 'fs/promises';
+import * as dotenv from 'dotenv';
+import {LeonardoAPI} from '../leonardo_api';
+import {generateStory} from '../story_generator';
+import type {StoryInput} from '../story_generator';
+import {generateSpeechFromText} from '../tts_core';
+import type {Character, KeyframeScene} from '../schemas';
+import {spawn} from 'child_process';
+import {createLogger, format, transports} from 'winston';
 
 // Add global error handlers for unhandled rejections and exceptions
 process.on('unhandledRejection', (reason, promise) => {
@@ -28,7 +28,7 @@ const logger = createLogger({
   level: 'info',
   format: format.combine(
     format.timestamp(),
-    format.errors({ stack: true }),
+    format.errors({stack: true}),
     format.json()
   ),
   transports: [
@@ -36,7 +36,7 @@ const logger = createLogger({
       format: format.combine(
         format.colorize(),
         format.simple(),
-        format.errors({ stack: true })
+        format.errors({stack: true})
       )
     })
   ]
@@ -388,7 +388,7 @@ async function main() {
 
     // Create output directory
     const outputDir = path.resolve(options.outputDir);
-    await fs.mkdir(outputDir, { recursive: true });
+    await fs.mkdir(outputDir, {recursive: true});
     logger.info(`Writing output to directory: ${outputDir}`);
 
     // Initialize Leonardo API if needed
@@ -397,7 +397,7 @@ async function main() {
 
     if (options.images) {
       const envPath = path.join(__dirname, '../../../.env');
-      dotenv.config({ path: envPath });
+      dotenv.config({path: envPath});
 
       const leonardoApiKey = process.env.LEONARDO_API_KEY;
       if (!leonardoApiKey) {
@@ -406,7 +406,7 @@ async function main() {
 
       leonardoClient = new LeonardoAPI(leonardoApiKey);
       imageDir = path.resolve(options.images);
-      await fs.mkdir(imageDir, { recursive: true });
+      await fs.mkdir(imageDir, {recursive: true});
       logger.info(`Will generate images in directory: ${imageDir}`);
     }
 
@@ -426,7 +426,7 @@ async function main() {
 
     logger.debug('Config values:', config.configurable);
 
-    const storyInput: StoryInput = { keywords };
+    const storyInput: StoryInput = {keywords};
     const storyResult = await generateStory.invoke(storyInput, config) as StoryResult;
 
     if (!storyResult) {
@@ -447,7 +447,7 @@ async function main() {
     const metadataFile = path.join(outputDir, 'metadata.json');
     await fs.writeFile(
       metadataFile,
-      JSON.stringify({ visual_style: visualStyle }, null, 2)
+      JSON.stringify({visual_style: visualStyle}, null, 2)
     );
     logger.info(`Wrote metadata to ${metadataFile}`);
     console.log(`\nSelected Visual Style: ${visualStyle}\n`);
@@ -458,7 +458,7 @@ async function main() {
       const charactersFile = path.join(outputDir, 'characters.json');
       await fs.writeFile(
         charactersFile,
-        JSON.stringify({ characters }, null, 2)
+        JSON.stringify({characters}, null, 2)
       );
       logger.info(`Wrote character profiles to ${charactersFile}`);
       console.log('\nGenerated Character Profiles:');

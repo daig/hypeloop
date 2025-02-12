@@ -16,6 +16,8 @@ import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { createCanvas, CanvasRenderingContext2D } from 'canvas';
 import GIFEncoder from 'gifencoder';
+import { generateStory } from './story_generator';
+import type { StoryInput, StoryConfig } from './story_generator';
 
 // Initialize Firebase Admin
 initializeApp();
@@ -562,6 +564,126 @@ export const generateProfileGif = onCall({
     logger.error("Error generating profile GIF:", error);
     const msg = error instanceof Error ? error.message : "Unknown error";
     throw new HttpsError("internal", `Failed to generate profile GIF: ${msg}`);
+  }
+});
+
+// Story generation function
+export const generateStoryFunction = onCall({
+  maxInstances: 2, // Limit concurrent executions due to resource intensity
+  timeoutSeconds: 540, // 9 minutes (max is 540s for HTTP functions)
+  memory: "2GiB", // Story generation can be memory intensive
+  region: "us-central1",
+  enforceAppCheck: false, // Enable in production
+}, async (request) => {
+  try {
+    // Ensure user is authenticated
+    if (!request.auth) {
+      throw new HttpsError(
+        "unauthenticated",
+        "The function must be called while authenticated."
+      );
+    }
+
+    // Validate request data
+    const data = request.data as {
+      keywords: string[];
+      config?: StoryConfig;
+    };
+
+    if (!data.keywords || !Array.isArray(data.keywords) || data.keywords.length === 0) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Keywords array is required and must not be empty"
+      );
+    }
+
+    // Set up story input
+    const storyInput: StoryInput = {
+      keywords: data.keywords
+    };
+
+    // Set up configuration
+    const config = {
+      configurable: {
+        extract_chars: data.config?.extract_chars ?? true,
+        generate_voiceover: data.config?.generate_voiceover ?? true,
+        generate_images: data.config?.generate_images ?? true,
+        save_script: data.config?.save_script ?? true,
+        num_keyframes: data.config?.num_keyframes ?? 4,
+        output_dir: `/tmp/story_${request.auth.uid}_${Date.now()}`, // Use temp directory
+        thread_id: `${request.auth.uid}_${Date.now()}` // Unique thread ID per request
+      }
+    };
+
+    logger.info("Starting story generation", {
+      uid: request.auth.uid,
+      keywords: data.keywords,
+      config: config.configurable
+    });
+
+    // Generate the story
+    const result = await generateStory.invoke(storyInput, config);
+
+    if (!result) {
+      throw new HttpsError("internal", "Story generation failed");
+    }
+
+    const [story, characters, scripts] = result;
+
+    // Save story data to Firestore
+    const storyDoc = await db.collection('stories').add({
+      userId: request.auth.uid,
+      keywords: data.keywords,
+      characters: characters || [],
+      scripts: scripts || [],
+      keyframes: story.map(([desc, scenes, style]) => ({
+        description: desc,
+        scenes: scenes.map(scene => ({
+          ...scene,
+          character: {
+            name: scene.character.name,
+            role: scene.character.role,
+            backstory: scene.character.backstory,
+            physical_description: scene.character.physical_description,
+            personality: scene.character.personality
+          }
+        })),
+        visual_style: style
+      })),
+      created_at: new Date().toISOString(),
+      status: 'completed'
+    });
+
+    logger.info("Story generation completed", {
+      uid: request.auth.uid,
+      storyId: storyDoc.id
+    });
+
+    // Return the story data and document ID
+    return {
+      storyId: storyDoc.id,
+      story: story.map(([desc, scenes, style]) => ({
+        description: desc,
+        scenes: scenes.map(scene => ({
+          ...scene,
+          character: {
+            name: scene.character.name,
+            role: scene.character.role,
+            backstory: scene.character.backstory,
+            physical_description: scene.character.physical_description,
+            personality: scene.character.personality
+          }
+        })),
+        visual_style: style
+      })),
+      characters,
+      scripts
+    };
+
+  } catch (error) {
+    logger.error("Error in story generation:", error);
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    throw new HttpsError("internal", `Story generation failed: ${msg}`);
   }
 });
 

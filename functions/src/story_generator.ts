@@ -1,27 +1,25 @@
-import OpenAI from 'openai';
-import { task, entrypoint, type LangGraphRunnableConfig, MemorySaver } from '@langchain/langgraph';
+import {OpenAI} from 'openai';
+import {task, entrypoint, MemorySaver} from '@langchain/langgraph';
+import type {LangGraphRunnableConfig} from '@langchain/langgraph';
 import * as dotenv from 'dotenv';
-import path from 'path';
-import fs from 'fs/promises';
-import { z } from 'zod';
-import { zodResponseFormat } from 'openai/helpers/zod';
+import * as path from 'path';
+import * as fs from 'fs/promises';
+import {z} from 'zod';
+import {zodResponseFormat} from 'openai/helpers/zod';
 import {
-  Role,
   type Character,
   type Characters,
   type VisualStyleResponse,
-  type DialogResponse,
   type Keyframe,
   type KeyframeResponse,
   type KeyframeScene,
   type KeyframesWithDialog,
   type LeonardoStyle
 } from './schemas';
-import { generateSpeechFromText } from './tts_core';
+import {generateSpeechFromText} from './tts_core';
 import {
   SCRIPT_GENERATION_PROMPT,
   KEYFRAME_EXTRACTION_PROMPT,
-  DIALOG_EXTRACTION_PROMPT,
   VISUAL_STYLE_PROMPT,
   CHARACTER_EXTRACTION_PROMPT,
   SCRIPT_ENHANCEMENT_PROMPT,
@@ -113,17 +111,6 @@ const KeyframesWithDialogSchema = z.object({
     dialog: z.string(),
     leonardo_prompt: z.string().optional()
   }))
-});
-
-const DialogResponseSchema = z.object({
-  character: z.object({
-    role: z.enum(["narrator", "child", "elder", "fairy", "hero", "villain", "sage", "sidekick"]),
-    name: z.string(),
-    backstory: z.string(),
-    physical_description: z.string(),
-    personality: z.string()
-  }),
-  text: z.string()
 });
 
 // Task definitions
@@ -284,39 +271,6 @@ export const generateKeyframeScenes = task("generate_keyframe_scenes", async (
   });
 
   return scenes;
-});
-
-// This function will be used in future implementations
-export const extractDialog = task("extract_dialog", async (
-  script: string,
-  keyframeDescription: string,
-  characters: Character[]
-): Promise<DialogResponse> => {
-  console.log("Extracting dialog for keyframe:", keyframeDescription.slice(0, 100) + "...");
-  
-  const narrator: Character = {
-    role: Role.NARRATOR,
-    name: "Narrator",
-    backstory: "An omniscient storyteller who guides the audience through the narrative.",
-    physical_description: "A disembodied voice with gravitas and warmth.",
-    personality: "Wise, neutral, and observant, with a clear and engaging speaking style."
-  };
-
-  const prompt = DIALOG_EXTRACTION_PROMPT
-    .replace("{keyframe_description}", keyframeDescription)
-    .replace("{script}", script)
-    .replace("{characters}", characters.map(char => 
-      `- ${char.name} (${char.role}): ${char.personality}`
-    ).join("\n"));
-
-  const dialog = await invokeChatCompletion(prompt, { schema: DialogResponseSchema }) as DialogResponse;
-  
-  // If narrator is chosen, use our narrator character
-  if (dialog.character.role === Role.NARRATOR) {
-    dialog.character = narrator;
-  }
-
-  return dialog;
 });
 
 // Main entrypoint

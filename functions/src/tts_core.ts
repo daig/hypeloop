@@ -1,7 +1,7 @@
-import OpenAI from 'openai';
+import {OpenAI} from 'openai';
 import * as dotenv from 'dotenv';
-import path from 'path';
-import { Role } from './schemas';
+import * as path from 'path';
+import {Role} from './schemas';
 
 // OpenAI's supported voice types
 type OpenAIVoice = 'alloy' | 'ash' | 'coral' | 'echo' | 'fable' | 'onyx' | 'nova' | 'sage' | 'shimmer';

@@ -84,45 +84,6 @@ Example format:
   ]
 }`;
 
-export const DIALOG_EXTRACTION_PROMPT = `You are a narrative editor. Given the complete story, a specific keyframe description, and character profiles, craft a brief narration that captures the essence of this moment.
-
-Keyframe Description:
-{keyframe_description}
-
-Story:
-{script}
-
-Available Characters:
-{characters}
-
-IMPORTANT: The primary voice should be the narrator's, creating a cohesive storytelling experience. Only use character voices in specific moments where their direct perspective significantly enhances the emotional impact.
-
-Guidelines for choosing who speaks:
-1. Use the narrator voice (default) when:
-   - Describing scenes, settings, or atmosphere
-   - Explaining actions or events
-   - Bridging moments or transitions
-   - Providing context or background
-   - Conveying general emotions or mood
-2. Only use character voices when:
-   - A character performs a highly significant or emotionally charged action
-   - The moment represents a critical turning point for that character
-   - The character's unique perspective would create substantially more impact than narration
-   - The character's voice would reveal something the narrator cannot
-
-Create a single brief narration that:
-- Uses approximately 10-15 words
-- Captures the most important action or moment
-- Uses vivid, concise language
-- Can be read aloud in about 5 seconds
-- Maintains a consistent narrative tone
-- Focuses on emotional impact and story progression
-
-Output Format:
-A DialogResponse with:
-- character: Either a full Character object from the available list, or a narrator (role="narrator", name="Narrator")
-- text: Brief narrative text (~5 seconds when read aloud) in the chosen voice`;
-
 export const CHARACTER_EXTRACTION_PROMPT = `You are a character designer and storyteller. Given a script, identify and develop the main characters that would best fit this narrative.
 
 Script:
@@ -274,4 +235,6 @@ Example Format (note the word count):
 
 Return exactly TWO scenes:
 1. A narration scene using the narrator's voice to introduce new characters and set the stage
-2. A character dialog scene featuring the most appropriate character for the main action`;
+2. A character dialog scene featuring the most appropriate character for the main action
+
+DO NOT INCLUDE THE WORD COUNT IN YOUR FINAL RESPONSE.`;

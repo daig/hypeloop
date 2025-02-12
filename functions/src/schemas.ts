@@ -76,11 +76,6 @@ export const visualStyleResponseSchema = z.object({
   style: leonardoStylesSchema,
 }).describe('visual_style');
 
-export const dialogResponseSchema = z.object({
-  character: characterSchema,
-  text: z.string(),
-}).describe('character_dialog');
-
 export const keyframeSchema = z.object({
   title: z.string(),
   description: z.string(),
@@ -110,7 +105,6 @@ export type Role = z.infer<typeof roleSchema>;
 export type Character = z.infer<typeof characterSchema>;
 export type Characters = z.infer<typeof charactersSchema>;
 export type VisualStyleResponse = z.infer<typeof visualStyleResponseSchema>;
-export type DialogResponse = z.infer<typeof dialogResponseSchema>;
 export type Keyframe = z.infer<typeof keyframeSchema>;
 export type KeyframeResponse = z.infer<typeof keyframeResponseSchema>;
 export type KeyframeScene = z.infer<typeof keyframeSceneSchema>;
