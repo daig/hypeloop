@@ -4,11 +4,11 @@ import {program} from 'commander';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as dotenv from 'dotenv';
-import {LeonardoAPI} from '../leonardo_api';
-import {generateStory} from '../story_generator';
-import type {StoryInput} from '../story_generator';
-import {generateSpeechFromText} from '../tts_core';
-import type {Character, KeyframeScene} from '../schemas';
+import {LeonardoAPI} from '../leonardo_api.js';
+import {generateStory} from '../story_generator.js';
+import type {StoryInput} from '../story_generator.js';
+import {generateSpeechFromText} from '../tts_core.js';
+import type {Character, KeyframeScene} from '../schemas.js';
 import {spawn} from 'child_process';
 import {createLogger, format, transports} from 'winston';
 

@@ -1,4 +1,4 @@
-import { LeonardoStyle } from './schemas';
+import { LeonardoStyle } from './schemas.js';
 
 // Leonardo style IDs mapping
 const LEONARDO_STYLE_IDS: Record<LeonardoStyle, string> = {

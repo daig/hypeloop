@@ -15,8 +15,8 @@ import {
   type KeyframeScene,
   type KeyframesWithDialog,
   type LeonardoStyle
-} from './schemas';
-import {generateSpeechFromText} from './tts_core';
+} from './schemas.js';
+import {generateSpeechFromText} from './tts_core.js';
 import {
   SCRIPT_GENERATION_PROMPT,
   KEYFRAME_EXTRACTION_PROMPT,
@@ -26,7 +26,7 @@ import {
   LEONARDO_PROMPT_OPTIMIZATION,
   WORDS_PER_KEYFRAME,
   KEYFRAME_SCENE_GENERATION_PROMPT
-} from './prompts';
+} from './prompts.js';
 
 // Load environment variables
 const envPath = path.join(__dirname, '..', '.env');

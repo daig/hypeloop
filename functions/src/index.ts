@@ -16,8 +16,8 @@ import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { createCanvas, CanvasRenderingContext2D } from 'canvas';
 import GIFEncoder from 'gifencoder';
-import { generateStory } from './story_generator';
-import type { StoryInput, StoryConfig } from './story_generator';
+import { generateStory } from './story_generator.js';
+import type { StoryInput, StoryConfig } from './story_generator.js';
 
 // Initialize Firebase Admin
 initializeApp();
