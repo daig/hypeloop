@@ -267,24 +267,18 @@ def generate_story(inputs: Dict[str, List[str]]) -> List[Tuple[str, Tuple[Charac
     keyframes = extract_keyframes(script).result()
     visual_style = determine_visual_style(script).result()
     
-    # Launch dialog extraction and voiceover generation tasks in parallel
-    logger.info("Launching parallel dialog and voiceover generation for %d keyframes", len(keyframes))
-    dialog_tasks = []
-    voiceover_tasks = []
+    # First, launch all dialog extraction tasks in parallel
+    logger.info("Launching parallel dialog extraction for %d keyframes", len(keyframes))
+    dialog_tasks = [extract_dialog(script, kf["description"]) for kf in keyframes]
     
-    for kf in keyframes:
-        # Start dialog extraction for this keyframe
-        dialog_task = extract_dialog(script, kf["description"])
-        dialog_tasks.append(dialog_task)
-        
-        # Once dialog is ready, start voiceover generation
-        dialog_result = dialog_task.result()
-        character, text = dialog_result
-        voiceover_task = generate_voiceover(character, text)
-        voiceover_tasks.append(voiceover_task)
-    
-    # Collect all results
+    # Wait for all dialogs to complete
     dialogs = [task.result() for task in dialog_tasks]
+    
+    # Now launch all voiceover generation tasks in parallel
+    logger.info("Launching parallel voiceover generation for %d keyframes", len(keyframes))
+    voiceover_tasks = [generate_voiceover(character, text) for character, text in dialogs]
+    
+    # Wait for all voiceovers to complete
     voiceovers = [task.result() for task in voiceover_tasks]
     
     # Combine results

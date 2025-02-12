@@ -40,6 +40,21 @@ LEONARDO_STYLE_IDS: Dict[LeonardoStyles, str] = {
     LeonardoStyles.WATERCOLOR: "1db308ce-c7ad-4d10-96fd-592fa6b75cc4"
 }
 
+class ItemType(Enum):
+    POTION = "potion"
+    WEAPON = "weapon"
+    ARMOR = "armor"
+    CRYSTAL = "crystal"
+    EQUIPMENT = "equipment"
+LEONARDO_ITEM_TYPE_IDS: Dict[ItemType, str] = {
+    ItemType.POTION: "45ab2421-87de-44c8-a07c-3b87e3bfdf84",  # Magic Potions model
+    ItemType.WEAPON: "47a6232a-1d49-4c95-83c3-2cc5342f82c7",  # Battle Axes model
+    ItemType.ARMOR: "302e258f-29b5-4dd8-9a7c-0cd898cb2143",  # Chest Armor model
+    ItemType.CRYSTAL: "102a8ee0-cf16-477c-8477-c76963a0d766",  # Crystal Deposits model
+    ItemType.EQUIPMENT: "2d18c0af-374e-4391-9ca2-639f59837c85"  # Magic Items model
+}
+    
+
 class LeonardoAPI:
     @dataclass(frozen=True)
     class GenerationId:
@@ -57,6 +72,8 @@ class LeonardoAPI:
             "authorization": f"Bearer {api_key}",
             "content-type": "application/json"
         }
+
+    
 
     def generate_image_for_keyframe(self, prompt: str, style: LeonardoStyles) -> Optional[tuple["LeonardoAPI.GenerationId", str]]:
         """
