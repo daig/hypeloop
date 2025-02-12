@@ -27,6 +27,7 @@ import {
   WORDS_PER_KEYFRAME,
   KEYFRAME_SCENE_GENERATION_PROMPT
 } from './prompts.js';
+import {uploadAudioToMux} from './mux_core.js';
 
 // Initialize OpenAI client
 let client: OpenAI;
@@ -147,9 +148,26 @@ export const determineVisualStyle = task("determine_visual_style", async (
 
 export const generateVoiceover = task("generate_voiceover", async (
   scene: KeyframeScene
-): Promise<ArrayBuffer> => {
+): Promise<KeyframeScene> => {
   console.log(`Generating voiceover for ${scene.character.name} (${scene.character.role}): ${scene.dialog.slice(0, 50)}...`);
-  return await generateSpeechFromText(scene.dialog, scene.character.role);
+  
+  // Generate the audio
+  const audioBuffer = await generateSpeechFromText(scene.dialog, scene.character.role);
+  
+  // Upload to Mux
+  const {uploadId, url} = await uploadAudioToMux(audioBuffer, {
+    filename: `${scene.title.toLowerCase().replace(/\s+/g, '_')}_audio.mp3`,
+    description: `Voiceover for scene: ${scene.title}`
+  });
+  
+  // Update the scene with Mux information
+  return {
+    ...scene,
+    audio: {
+      muxUploadId: uploadId,
+      muxUrl: url
+    }
+  };
 });
 
 export const extractCharacters = task("extract_characters", async (
@@ -366,20 +384,22 @@ export const generateStory = entrypoint(
     }
 
     // Generate voiceovers if requested
-    let voiceovers: (ArrayBuffer | null)[] = [];
+    let voiceovers: KeyframeScene[] = [];
     if (shouldGenerateVoiceover) {
       const voiceoverTasks = allScenes.flatMap((keyframeScenes: KeyframesWithDialog) =>
         keyframeScenes.scenes.map((scene: KeyframeScene) => generateVoiceover(scene))
       );
-      const allVoiceovers = await Promise.all(voiceoverTasks);
+      voiceovers = await Promise.all(voiceoverTasks);
       
-      // Group voiceovers back by keyframe (2 scenes per keyframe)
-      voiceovers = Array.from({ length: allScenes.length }, (_, i) => {
-        const keyframeVoiceovers = allVoiceovers.slice(i * 2, (i + 1) * 2);
-        return keyframeVoiceovers.length > 0 ? keyframeVoiceovers[0] : null;
-      });
-    } else {
-      voiceovers = Array(allScenes.length).fill(null);
+      // Update scenes with voiceover information
+      for (let i = 0; i < allScenes.length; i++) {
+        for (let j = 0; j < allScenes[i].scenes.length; j++) {
+          const voiceoverIdx = i * 2 + j; // 2 scenes per keyframe
+          if (voiceoverIdx < voiceovers.length) {
+            allScenes[i].scenes[j] = voiceovers[voiceoverIdx];
+          }
+        }
+      }
     }
 
     // Combine results
@@ -387,7 +407,7 @@ export const generateStory = entrypoint(
       scenes.scenes[0].description,
       scenes.scenes,
       visualStyle,
-      voiceovers[idx]
+      null // Remove the old audio buffer since we now store it in Mux
     ]);
 
     const totalTime = (Date.now() - startTime) / 1000;

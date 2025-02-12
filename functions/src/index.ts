@@ -191,28 +191,74 @@ export const muxWebhook = onRequest(
                 return;
             }
 
-            // Get the video document directly by ID
-            const videoRef = db.collection('videos').doc(uploadId);
-            const videoDoc = await videoRef.get();
+            // Check if this is a video or audio asset
+            const isAudio = event.data.tracks?.some((track: any) => track.type === 'audio');
 
-            if (!videoDoc.exists) {
-                logger.error("No video found with ID", { uploadId });
-                res.status(404).json({ error: 'Video not found' });
-                return;
+            if (isAudio) {
+                // Find stories that contain this Mux upload ID
+                const storiesRef = db.collection('stories');
+                const storyQuery = await storiesRef.where('keyframes', 'array-contains', {
+                    'scenes.audio.muxUploadId': uploadId
+                }).get();
+
+                if (!storyQuery.empty) {
+                    for (const doc of storyQuery.docs) {
+                        const storyData = doc.data();
+                        const updatedKeyframes = storyData.keyframes.map((keyframe: any) => ({
+                            ...keyframe,
+                            scenes: keyframe.scenes.map((scene: any) => {
+                                if (scene.audio?.muxUploadId === uploadId) {
+                                    return {
+                                        ...scene,
+                                        audio: {
+                                            ...scene.audio,
+                                            status: 'ready',
+                                            playbackId,
+                                            assetId
+                                        }
+                                    };
+                                }
+                                return scene;
+                            })
+                        }));
+
+                        await doc.ref.update({
+                            keyframes: updatedKeyframes,
+                            updated_at: new Date().toISOString()
+                        });
+
+                        logger.info("Updated audio status to ready", {
+                            storyId: doc.id,
+                            uploadId,
+                            playbackId,
+                            assetId
+                        });
+                    }
+                }
+            } else {
+                // Handle video assets (existing code)
+                const videoRef = db.collection('videos').doc(uploadId);
+                const videoDoc = await videoRef.get();
+
+                if (!videoDoc.exists) {
+                    logger.error("No video found with ID", { uploadId });
+                    res.status(404).json({ error: 'Video not found' });
+                    return;
+                }
+
+                await videoRef.update({
+                    status: 'ready',
+                    playback_id: playbackId,
+                    asset_id: assetId,
+                    updated_at: new Date().toISOString()
+                });
+
+                logger.info("Updated video status to ready", {
+                    docId: videoDoc.id,
+                    playbackId,
+                    assetId
+                });
             }
-            // Update only the necessary fields while preserving others
-            await videoRef.update({
-                status: 'ready',
-                playback_id: playbackId,
-                asset_id: assetId,
-                updated_at: new Date().toISOString()
-            });
-
-            logger.info("Updated video status to ready", { 
-                docId: videoDoc.id, 
-                playbackId, 
-                assetId 
-            });
         }
 
         // Handle asset.errored event
@@ -220,21 +266,66 @@ export const muxWebhook = onRequest(
             const uploadId = event.data.upload_id;
             const error = event.data.errors?.messages?.[0] || 'Unknown error';
 
-            const videosRef = db.collection('videos');
-            const videoQuery = await videosRef.where('uploadId', '==', uploadId).get();
+            // Check if this is a video or audio asset
+            const isAudio = event.data.tracks?.some((track: any) => track.type === 'audio');
 
-            if (!videoQuery.empty) {
-                const videoDoc = videoQuery.docs[0];
-                await videoDoc.ref.update({
-                    status: 'error',
-                    error: error,
-                    updatedAt: new Date().toISOString()
-                });
+            if (isAudio) {
+                // Find stories that contain this Mux upload ID
+                const storiesRef = db.collection('stories');
+                const storyQuery = await storiesRef.where('keyframes', 'array-contains', {
+                    'scenes.audio.muxUploadId': uploadId
+                }).get();
 
-                logger.error("Video processing failed", { 
-                    docId: videoDoc.id, 
-                    error 
-                });
+                if (!storyQuery.empty) {
+                    for (const doc of storyQuery.docs) {
+                        const storyData = doc.data();
+                        const updatedKeyframes = storyData.keyframes.map((keyframe: any) => ({
+                            ...keyframe,
+                            scenes: keyframe.scenes.map((scene: any) => {
+                                if (scene.audio?.muxUploadId === uploadId) {
+                                    return {
+                                        ...scene,
+                                        audio: {
+                                            ...scene.audio,
+                                            status: 'error',
+                                            error
+                                        }
+                                    };
+                                }
+                                return scene;
+                            })
+                        }));
+
+                        await doc.ref.update({
+                            keyframes: updatedKeyframes,
+                            updated_at: new Date().toISOString()
+                        });
+
+                        logger.error("Audio processing failed", {
+                            storyId: doc.id,
+                            uploadId,
+                            error
+                        });
+                    }
+                }
+            } else {
+                // Handle video errors (existing code)
+                const videosRef = db.collection('videos');
+                const videoQuery = await videosRef.where('uploadId', '==', uploadId).get();
+
+                if (!videoQuery.empty) {
+                    const videoDoc = videoQuery.docs[0];
+                    await videoDoc.ref.update({
+                        status: 'error',
+                        error: error,
+                        updatedAt: new Date().toISOString()
+                    });
+
+                    logger.error("Video processing failed", {
+                        docId: videoDoc.id,
+                        error
+                    });
+                }
             }
         }
 
@@ -651,7 +742,12 @@ export const generateStoryFunction = onCall({
             backstory: scene.character.backstory,
             physical_description: scene.character.physical_description,
             personality: scene.character.personality
-          }
+          },
+          audio: scene.audio ? {
+            muxUploadId: scene.audio.muxUploadId,
+            muxUrl: scene.audio.muxUrl,
+            status: 'processing' // Will be updated to 'ready' by the Mux webhook
+          } : undefined
         })),
         visual_style: style
       })),

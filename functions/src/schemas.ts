@@ -93,6 +93,10 @@ export const keyframeSceneSchema = z.object({
   description: z.string(),
   characters_in_scene: z.array(z.string()),
   leonardo_prompt: z.string().optional(),
+  audio: z.object({
+    muxUploadId: z.string(),
+    muxUrl: z.string(),
+  }).optional(),
 }).describe('keyframe_scene');
 
 export const keyframesWithDialogSchema = z.object({
