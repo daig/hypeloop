@@ -33,6 +33,15 @@ class Role(str, Enum):
     SAGE = "sage"
     SIDEKICK = "sidekick"
 
+class Character(BaseModel):
+    role: Role
+    name: str
+    backstory: str
+    physical_description: str
+    personality: str
+
+class Characters(BaseModel):
+    characters: List[Character]
 
 class VisualStyleResponse(BaseModel):
     style: LeonardoStyles

@@ -70,4 +70,25 @@ Create a single brief narration that:
 
 Output Format:
 Narration: [Brief narrative text, ~5 seconds when read aloud]
-''' 
+'''
+
+CHARACTER_EXTRACTION_PROMPT = '''You are a character designer and storyteller. Given a script, identify and develop the main characters that would best fit this narrative.
+
+Script:
+{script}
+
+For each character, provide:
+1. A role from the following options: narrator, child, elder, fae, hero, villain, sage, sidekick
+2. A unique and fitting name that matches their role in the story
+3. A rich backstory that explains their motivations and history
+4. A detailed physical description including appearance and distinguishing features
+5. A personality profile including traits, mannerisms, and speaking style
+
+Guidelines:
+- Each character should feel unique and memorable
+- Descriptions should be detailed enough for both visual and audio representation
+- Characters should naturally fit within the story's world and tone
+- Consider how each character would sound when speaking (voice acting considerations)
+- Focus on the main characters that drive the story (typically 2-4 characters)
+
+Return a list of characters, where each character has 'role', 'name', 'backstory', 'physical_description', and 'personality' fields.''' 

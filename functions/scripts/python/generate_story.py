@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 from story_generator import generate_story, logger, Role
 from leonardo_api import LeonardoAPI, LeonardoStyles
+from schemas import DialogResponse
 from dotenv import load_dotenv
 from typing import Tuple, Dict, Any
 import subprocess
@@ -144,11 +145,11 @@ async def generate_motion_for_image(leonardo_client: LeonardoAPI,
     except Exception as e:
         logger.error(f"Error generating motion for keyframe {keyframe_num}: {e}", exc_info=True)
 
-def write_dialog_to_file(dialog: Tuple[Role, str], output_path: str):
-    """Write dialog tuple as JSON to file."""
+def write_dialog_to_file(dialog: DialogResponse, output_path: str):
+    """Write dialog to JSON file."""
     dialog_dict = {
-        "character": dialog[0],  # Character enum value
-        "text": dialog[1]        # Dialog text
+        "character": dialog.character,  # Role enum value
+        "text": dialog.text
     }
     with open(output_path, 'w') as f:
         json.dump(dialog_dict, f, indent=2)
@@ -203,7 +204,7 @@ async def generate_static_video_from_image(image_path: Path, output_dir: Path, k
 async def process_keyframe(
     leonardo_client: LeonardoAPI,
     desc: str,
-    dialog: tuple,
+    dialog: DialogResponse,
     audio_data: bytes,
     visual_style: str,
     keyframe_num: int,
@@ -222,7 +223,7 @@ async def process_keyframe(
         
         # Write dialog
         dialog_path = output_dir / f"dialog_{keyframe_num}.json"
-        dialog_dict = {"character": dialog[0], "text": dialog[1]}
+        dialog_dict = {"character": dialog.character, "text": dialog.text}
         async with aiofiles.open(dialog_path, "w", encoding="utf-8") as f:
             await f.write(json.dumps(dialog_dict, indent=2))
         logger.info("Wrote dialog %d to %s", keyframe_num, dialog_path)
@@ -295,10 +296,21 @@ async def async_main(args: argparse.Namespace) -> None:
         image_dir.mkdir(parents=True, exist_ok=True)
         logger.info("Will generate images in directory: %s", image_dir)
     
-    config = {"configurable": {"thread_id": args.thread_id}}
+    config = {
+        "configurable": {
+            "thread_id": args.thread_id,
+            "extract_chars": args.characters
+        }
+    }
     
     logger.info("Starting story generation with thread ID: %s", args.thread_id)
-    story = generate_story.invoke({"keywords": args.keywords}, config=config)
+    story_result = generate_story.invoke({"keywords": args.keywords}, config=config)
+    
+    if not story_result:
+        logger.error("Story generation failed")
+        return
+        
+    story, characters = story_result
     
     print("\nGenerating story with keywords:", ", ".join(args.keywords))
     print("=" * 80 + "\n")
@@ -312,6 +324,28 @@ async def async_main(args: argparse.Namespace) -> None:
         logger.info("Wrote metadata to %s", metadata_file)
         print(f"\nSelected Visual Style: {visual_style}\n")
         print("=" * 80 + "\n")
+        
+        # Write character profiles if requested
+        if args.characters and characters:
+            characters_file = output_dir / "characters.json"
+            async with aiofiles.open(characters_file, "w", encoding="utf-8") as f:
+                # Convert characters to dict for JSON serialization
+                characters_data = [
+                    {
+                        "role": char.role,
+                        "name": char.name,
+                        "backstory": char.backstory,
+                        "physical_description": char.physical_description,
+                        "personality": char.personality
+                    }
+                    for char in characters
+                ]
+                await f.write(json.dumps({"characters": characters_data}, indent=2))
+            logger.info("Wrote character profiles to %s", characters_file)
+            print("\nGenerated Character Profiles:")
+            for char in characters:
+                print(f"- {char.name} ({char.role})")
+            print("=" * 80 + "\n")
         
         # Process all keyframes in parallel
         tasks = []
@@ -342,6 +376,7 @@ def main():
     parser.add_argument("--images", help="Generate images for keyframes and save to specified directory")
     parser.add_argument("--motion", action="store_true", help="Generate motion video for the first keyframe image")
     parser.add_argument("--static-vid", action="store_true", help="Generate static videos (5 seconds) from keyframe images")
+    parser.add_argument("--characters", action="store_true", help="Extract and save character profiles to characters.json")
     
     args = parser.parse_args()
     

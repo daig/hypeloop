@@ -4,7 +4,7 @@ Core functionality for generating stories using OpenAI and LangGraph.
 
 import os
 from dotenv import load_dotenv
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional, Any
 from openai import OpenAI
 from langgraph.func import task, entrypoint
 from langgraph.checkpoint.memory import MemorySaver
@@ -15,7 +15,8 @@ from prompts import (
     SCRIPT_GENERATION_PROMPT,
     KEYFRAME_EXTRACTION_PROMPT,
     DIALOG_EXTRACTION_PROMPT,
-    VISUAL_STYLE_PROMPT
+    VISUAL_STYLE_PROMPT,
+    CHARACTER_EXTRACTION_PROMPT
 )
 from schemas import (
     LeonardoStyles,
@@ -23,7 +24,9 @@ from schemas import (
     VisualStyleResponse,
     DialogResponse,
     Keyframe,
-    KeyframeResponse
+    KeyframeResponse,
+    Character,
+    Characters
 )
 from tts_core import generate_speech_from_text
 
@@ -132,10 +135,10 @@ def extract_keyframes(script: str) -> List[Dict[str, str]]:
     return [kf.model_dump() for kf in keyframes]
 
 @task
-def extract_dialog(script: str, keyframe_description: str) -> Tuple[Role, str]:
+def extract_dialog(script: str, keyframe_description: str) -> DialogResponse:
     """
     Combines the full screenplay and a keyframe description to extract dialogue and narration.
-    Returns a tuple of (character, text).
+    Returns a DialogResponse containing the character role and text.
     """
     logger.debug("Extracting dialog for keyframe: %s", keyframe_description[:100] + "...")
     start_time = time.time()
@@ -155,7 +158,7 @@ def extract_dialog(script: str, keyframe_description: str) -> Tuple[Role, str]:
     elapsed_time = time.time() - start_time
     logger.debug("Dialog extraction completed in %.2f seconds", elapsed_time)
     
-    return dialog.character, dialog.text
+    return dialog
 
 @task
 def determine_visual_style(script: str) -> LeonardoStyles:
@@ -181,22 +184,21 @@ def determine_visual_style(script: str) -> LeonardoStyles:
     return style
 
 @task
-def generate_voiceover(character: Role, text: str) -> bytes:
+def generate_voiceover(dialog: DialogResponse) -> bytes:
     """
-    Generates audio voiceover for the given character and text using TTS.
+    Generates audio voiceover for the given dialog using TTS.
     
     Args:
-        character: The character type (narrator, child, etc.)
-        text: The text to convert to speech
+        dialog: The DialogResponse containing character and text
         
     Returns:
         Audio data as bytes
     """
-    logger.info(f"Generating voiceover for {character}: {text[:50]}...")
+    logger.info(f"Generating voiceover for {dialog.character}: {dialog.text[:50]}...")
     start_time = time.time()
     
     try:
-        response = generate_speech_from_text(text, character=character.value)
+        response = generate_speech_from_text(dialog.text, character=dialog.character.value)
         audio_data = response.read()
         
         elapsed_time = time.time() - start_time
@@ -208,16 +210,45 @@ def generate_voiceover(character: Role, text: str) -> bytes:
         logger.error(f"Failed to generate voiceover: {str(e)}")
         raise
 
+@task
+def extract_characters(script: str) -> List[Character]:
+    """
+    Analyzes the script and extracts/generates character profiles.
+    Returns a list of Character objects.
+    """
+    logger.info("Extracting characters from script")
+    start_time = time.time()
+    
+    prompt = CHARACTER_EXTRACTION_PROMPT.format(script=script)
+    logger.debug("Sending character extraction prompt to OpenAI")
+    
+    # Use beta parsing with our Pydantic schema
+    response = invoke_chat_completion(prompt, response_format=Characters)
+    # Access the parsed result from the beta response
+    characters = response.choices[0].message.parsed.characters
+    
+    log_prompt_and_response(prompt, str(characters), "Character Extraction")
+    
+    elapsed_time = time.time() - start_time
+    logger.info("Extracted %d characters in %.2f seconds", len(characters), elapsed_time)
+    
+    return characters
+
 @entrypoint(checkpointer=MemorySaver())
-def generate_story(inputs: Dict[str, List[str]]) -> List[Tuple[str, Tuple[Role, str], str, bytes]]:
+def generate_story(inputs: Dict[str, List[str]], config: Dict[str, Any] = None) -> Tuple[List[Tuple[str, DialogResponse, str, bytes]], Optional[List[Character]]]:
     """
     Public interface function that ties the OpenAI steps together.
 
     Input:
       - inputs: Dictionary containing 'keywords' list
+      - config: Configuration dictionary containing:
+        - thread_id: ID for the story generation thread
+        - extract_chars: Whether to extract character profiles
 
     Output:
-      - A list of tuples, where each tuple is (keyframe description, keyframe dialog/narration, visual style, audio_data).
+      - A tuple of:
+        - List of tuples (keyframe description, dialog response, visual style, audio_data)
+        - Optional list of Character objects if extract_chars is True
     """
     logger.info("Starting story generation process")
     start_time = time.time()
@@ -225,12 +256,25 @@ def generate_story(inputs: Dict[str, List[str]]) -> List[Tuple[str, Tuple[Role, 
     keywords = inputs["keywords"]
     logger.info("Processing keywords: %s", ", ".join(keywords))
     
+    # Get extract_chars from config
+    extract_chars = config.get("configurable", {}).get("extract_chars", False) if config else False
+    
     # Generate the initial script
     script = generate_script(keywords).result()
     
-    # Parallel tasks: Extract keyframes and determine visual style
-    keyframes = extract_keyframes(script).result()
-    visual_style = determine_visual_style(script).result()
+    # Parallel tasks: Extract keyframes, determine visual style, and optionally extract characters
+    tasks = {
+        'keyframes': extract_keyframes(script),
+        'visual_style': determine_visual_style(script)
+    }
+    if extract_chars:
+        tasks['characters'] = extract_characters(script)
+    
+    # Wait for all initial tasks to complete
+    results = {name: task.result() for name, task in tasks.items()}
+    keyframes = results['keyframes']
+    visual_style = results['visual_style']
+    characters = results.get('characters')
     
     # First, launch all dialog extraction tasks in parallel
     logger.info("Launching parallel dialog extraction for %d keyframes", len(keyframes))
@@ -241,13 +285,13 @@ def generate_story(inputs: Dict[str, List[str]]) -> List[Tuple[str, Tuple[Role, 
     
     # Now launch all voiceover generation tasks in parallel
     logger.info("Launching parallel voiceover generation for %d keyframes", len(keyframes))
-    voiceover_tasks = [generate_voiceover(character, text) for character, text in dialogs]
+    voiceover_tasks = [generate_voiceover(dialog) for dialog in dialogs]
     
     # Wait for all voiceovers to complete
     voiceovers = [task.result() for task in voiceover_tasks]
     
     # Combine results
-    results = [
+    story_results = [
         (kf["description"], dialog, visual_style, voiceover)
         for kf, dialog, voiceover in zip(keyframes, dialogs, voiceovers)
     ]
@@ -255,4 +299,4 @@ def generate_story(inputs: Dict[str, List[str]]) -> List[Tuple[str, Tuple[Role, 
     total_time = time.time() - start_time
     logger.info("Story generation completed in %.2f seconds", total_time)
     
-    return results 
+    return story_results, characters 
