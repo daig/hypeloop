@@ -906,60 +906,81 @@ struct CreateTabView: View {
                 options: [.skipsHiddenFiles]
             )
             
-            // Function to extract number from filename
-            func extractNumber(from filename: String) -> Int? {
-                let pattern = "\\d+"  // Match one or more digits
-                if let range = filename.range(of: pattern, options: .regularExpression) {
-                    return Int(filename[range])
+            // Function to extract numbers from filename
+            func extractNumbers(from filename: String) -> (primary: Int, secondary: Int)? {
+                let pattern = "(\\d+)_(\\d+)"  // Match pattern like "1_1"
+                if let match = filename.range(of: pattern, options: .regularExpression) {
+                    let numbers = filename[match].split(separator: "_")
+                    if numbers.count == 2,
+                       let primary = Int(numbers[0]),
+                       let secondary = Int(numbers[1]) {
+                        return (primary, secondary)
+                    }
                 }
                 return nil
             }
             
             // Separate videos and audio files with their numbers
-            var numberedVideos: [(number: Int, url: URL)] = []
-            var numberedAudios: [(number: Int, url: URL)] = []
+            var numberedVideos: [(primary: Int, secondary: Int, url: URL)] = []
+            var numberedAudios: [(primary: Int, secondary: Int, url: URL)] = []
             
             for url in contents {
-                guard let number = extractNumber(from: url.lastPathComponent) else { continue }
+                guard let numbers = extractNumbers(from: url.lastPathComponent) else { continue }
                 guard let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType else { continue }
                 
-                if type.conforms(to: .movie) || type.conforms(to: UTType("public.mpeg-4")!) {
-                    numberedVideos.append((number, url))
-                } else if type.conforms(to: .audio) || type.conforms(to: UTType("public.mp3")!) {
-                    numberedAudios.append((number, url))
+                let isVideo = type.conforms(to: .movie) || type.conforms(to: UTType("public.mpeg-4")!)
+                let isAudio = type.conforms(to: .audio) || type.conforms(to: UTType("public.mp3")!)
+                
+                if isVideo && url.lastPathComponent.contains("keyframe") {
+                    numberedVideos.append((numbers.primary, numbers.secondary, url))
+                } else if isAudio && url.lastPathComponent.contains("voiceover") {
+                    numberedAudios.append((numbers.primary, numbers.secondary, url))
                 }
             }
             
-            // Sort by number
-            numberedVideos.sort { $0.number < $1.number }
-            numberedAudios.sort { $0.number < $1.number }
+            // Sort by primary number first, then secondary number
+            numberedVideos.sort { 
+                if $0.primary != $1.primary {
+                    return $0.primary < $1.primary
+                }
+                return $0.secondary < $1.secondary
+            }
+            numberedAudios.sort { 
+                if $0.primary != $1.primary {
+                    return $0.primary < $1.primary
+                }
+                return $0.secondary < $1.secondary
+            }
             
             print("📊 Found \(numberedVideos.count) videos and \(numberedAudios.count) audio files")
             
-            // Create pairs by matching numbers
+            // Create pairs by matching both numbers
             var pairs: [(videoURL: URL, audioURL: URL)] = []
-            var processedNumbers = Set<Int>()
+            var processedPairs = Set<String>()
             
             for videoItem in numberedVideos {
-                if let matchingAudio = numberedAudios.first(where: { $0.number == videoItem.number }) {
-                    if !processedNumbers.contains(videoItem.number) {
+                if let matchingAudio = numberedAudios.first(where: { 
+                    $0.primary == videoItem.primary && $0.secondary == videoItem.secondary 
+                }) {
+                    let pairKey = "\(videoItem.primary)_\(videoItem.secondary)"
+                    if !processedPairs.contains(pairKey) {
                         // Copy files to app sandbox
                         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                        let videoDestination = documentsURL.appendingPathComponent("temp_\(videoItem.number)_\(videoItem.url.lastPathComponent)")
-                        let audioDestination = documentsURL.appendingPathComponent("temp_\(videoItem.number)_\(matchingAudio.url.lastPathComponent)")
+                        let videoDestination = documentsURL.appendingPathComponent("temp_\(pairKey)_\(videoItem.url.lastPathComponent)")
+                        let audioDestination = documentsURL.appendingPathComponent("temp_\(pairKey)_\(matchingAudio.url.lastPathComponent)")
                         
                         do {
                             try fileManager.copyItem(at: videoItem.url, to: videoDestination)
                             try fileManager.copyItem(at: matchingAudio.url, to: audioDestination)
                             pairs.append((videoURL: videoDestination, audioURL: audioDestination))
-                            processedNumbers.insert(videoItem.number)
-                            print("✅ Paired files with number \(videoItem.number)")
+                            processedPairs.insert(pairKey)
+                            print("✅ Paired files with numbers \(pairKey)")
                         } catch {
-                            print("❌ Error copying files for number \(videoItem.number): \(error)")
+                            print("❌ Error copying files for numbers \(pairKey): \(error)")
                         }
                     }
                 } else {
-                    print("⚠️ No matching audio found for video number \(videoItem.number)")
+                    print("⚠️ No matching audio found for video \(videoItem.primary)_\(videoItem.secondary)")
                 }
             }
             
