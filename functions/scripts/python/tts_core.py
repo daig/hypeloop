@@ -1,16 +1,19 @@
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
+from schemas import Role
 
 def get_voice_for_character(character):
     """Map character types to appropriate voices."""
-    character_voices = {
-        'narrator': 'fable',  # Warm, engaging narrator voice
-        'child': 'nova',      # Youthful, bright voice
-        'elder': 'onyx',      # Deep, authoritative voice
-        'fairy': 'shimmer',   # Light, whimsical voice
-        'hero': 'alloy',      # Balanced, confident voice
-        'villain': 'echo'     # Dramatic, resonant voice
+    character_voices : Dict[Role, str] = {
+        Role.NARRATOR: 'fable',  # Warm, engaging narrator voice
+        Role.CHILD: 'nova',      # Youthful, bright voice
+        Role.ELDER: 'onyx',      # Deep, authoritative voice
+        Role.FAE: 'shimmer',   # Light, whimsical voice
+        Role.HERO: 'alloy',      # Balanced, confident voice
+        Role.VILLAIN: 'ash',     # Dramatic, resonant voice
+        Role.SAGE: 'sage',
+        Role.SIDEKICK: 'coral'
     }
     return character_voices.get(character.lower(), 'fable')  # Default to fable if character not found
 

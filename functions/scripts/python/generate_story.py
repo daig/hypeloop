@@ -7,7 +7,7 @@ import logging
 import json
 import os
 from pathlib import Path
-from story_generator import generate_story, logger, Character
+from story_generator import generate_story, logger, Role
 from leonardo_api import LeonardoAPI, LeonardoStyles
 from dotenv import load_dotenv
 from typing import Tuple, Dict, Any
@@ -144,7 +144,7 @@ async def generate_motion_for_image(leonardo_client: LeonardoAPI,
     except Exception as e:
         logger.error(f"Error generating motion for keyframe {keyframe_num}: {e}", exc_info=True)
 
-def write_dialog_to_file(dialog: Tuple[Character, str], output_path: str):
+def write_dialog_to_file(dialog: Tuple[Role, str], output_path: str):
     """Write dialog tuple as JSON to file."""
     dialog_dict = {
         "character": dialog[0],  # Character enum value

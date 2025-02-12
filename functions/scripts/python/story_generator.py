@@ -11,48 +11,21 @@ from langgraph.checkpoint.memory import MemorySaver
 import logging
 import time
 import textwrap
-from pydantic import BaseModel
 from prompts import (
     SCRIPT_GENERATION_PROMPT,
     KEYFRAME_EXTRACTION_PROMPT,
     DIALOG_EXTRACTION_PROMPT,
     VISUAL_STYLE_PROMPT
 )
-from enum import Enum
+from schemas import (
+    LeonardoStyles,
+    Role,
+    VisualStyleResponse,
+    DialogResponse,
+    Keyframe,
+    KeyframeResponse
+)
 from tts_core import generate_speech_from_text
-
-class LeonardoStyles(str, Enum):
-    RENDER_3D = "RENDER_3D"
-    ACRYLIC = "ACRYLIC"
-    ANIME_GENERAL = "ANIME_GENERAL"
-    CREATIVE = "CREATIVE"
-    DYNAMIC = "DYNAMIC"
-    FASHION = "FASHION"
-    GAME_CONCEPT = "GAME_CONCEPT"
-    GRAPHIC_DESIGN_3D = "GRAPHIC_DESIGN_3D"
-    ILLUSTRATION = "ILLUSTRATION"
-    NONE = "NONE"
-    PORTRAIT = "PORTRAIT"
-    PORTRAIT_CINEMATIC = "PORTRAIT_CINEMATIC"
-    RAY_TRACED = "RAY_TRACED"
-    STOCK_PHOTO = "STOCK_PHOTO"
-    WATERCOLOR = "WATERCOLOR"
-
-class Character(str, Enum):
-    NARRATOR = "narrator"
-    CHILD = "child"
-    ELDER = "elder"
-    FAIRY = "fairy"
-    HERO = "hero"
-    VILLAIN = "villain"
-
-
-class VisualStyleResponse(BaseModel):
-    style: LeonardoStyles
-
-class DialogResponse(BaseModel):
-    character: Character
-    text: str
 
 # Set up logging configuration
 logging.basicConfig(
@@ -68,14 +41,6 @@ load_dotenv(env_path)
 
 # Initialize OpenAI client
 client = OpenAI()
-
-# Define response schema classes
-class Keyframe(BaseModel):
-    title: str
-    description: str
-
-class KeyframeResponse(BaseModel):
-    keyframes: List[Keyframe]
 
 # ---------- Helper Functions ----------
 
@@ -167,7 +132,7 @@ def extract_keyframes(script: str) -> List[Dict[str, str]]:
     return [kf.model_dump() for kf in keyframes]
 
 @task
-def extract_dialog(script: str, keyframe_description: str) -> Tuple[Character, str]:
+def extract_dialog(script: str, keyframe_description: str) -> Tuple[Role, str]:
     """
     Combines the full screenplay and a keyframe description to extract dialogue and narration.
     Returns a tuple of (character, text).
@@ -216,7 +181,7 @@ def determine_visual_style(script: str) -> LeonardoStyles:
     return style
 
 @task
-def generate_voiceover(character: Character, text: str) -> bytes:
+def generate_voiceover(character: Role, text: str) -> bytes:
     """
     Generates audio voiceover for the given character and text using TTS.
     
@@ -244,7 +209,7 @@ def generate_voiceover(character: Character, text: str) -> bytes:
         raise
 
 @entrypoint(checkpointer=MemorySaver())
-def generate_story(inputs: Dict[str, List[str]]) -> List[Tuple[str, Tuple[Character, str], str, bytes]]:
+def generate_story(inputs: Dict[str, List[str]]) -> List[Tuple[str, Tuple[Role, str], str, bytes]]:
     """
     Public interface function that ties the OpenAI steps together.
 
