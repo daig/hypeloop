@@ -10,7 +10,11 @@ from dotenv import load_dotenv
 from leonardo_api import LeonardoAPI, LeonardoStyles
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.ERROR,  # Default to ERROR level
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
 logger = logging.getLogger(__name__)
 
 def download_image(image_url: str, output_path: str) -> bool:
@@ -69,8 +73,14 @@ def main():
     parser.add_argument("style_file", help="Path to JSON file containing the visual style")
     parser.add_argument("--motion", action="store_true", help="Generate motion video for the generated image")
     parser.add_argument("--output-dir", default="output/images", help="Directory to save generated files")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     
     args = parser.parse_args()
+
+    # Set debug logging if flag is provided
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
+        logger.debug("Debug logging enabled")
 
     # Load environment variables from .env file
     load_dotenv()

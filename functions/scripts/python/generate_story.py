@@ -11,11 +11,13 @@ from story_generator import generate_story, logger, Role
 from leonardo_api import LeonardoAPI, LeonardoStyles
 from schemas import DialogResponse
 from dotenv import load_dotenv
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, List, Optional
 import subprocess
 import asyncio
 import aiohttp
 import aiofiles
+from tts_core import generate_speech_from_text
+import time
 
 async def generate_image_for_keyframe(leonardo_client: LeonardoAPI, 
                               keyframe_desc: str, 
@@ -205,11 +207,11 @@ async def process_keyframe(
     leonardo_client: LeonardoAPI,
     desc: str,
     dialog: DialogResponse,
-    audio_data: bytes,
+    audio_data: bytes | None,
     visual_style: str,
     keyframe_num: int,
     output_dir: Path,
-    images_dir: Path,
+    images_dir: Path | None,
     generate_video: bool,
     use_motion: bool
 ) -> None:
@@ -221,51 +223,74 @@ async def process_keyframe(
             await f.write(desc)
         logger.info("Wrote keyframe %d to %s", keyframe_num, keyframe_file)
         
-        # Write dialog
+        # Write dialog - convert to dict for JSON serialization
         dialog_path = output_dir / f"dialog_{keyframe_num}.json"
-        dialog_dict = {"character": dialog.character, "text": dialog.text}
+        dialog_dict = {
+            "character": dialog.character.model_dump(),
+            "text": dialog.text
+        }
         async with aiofiles.open(dialog_path, "w", encoding="utf-8") as f:
             await f.write(json.dumps(dialog_dict, indent=2))
         logger.info("Wrote dialog %d to %s", keyframe_num, dialog_path)
         
-        # Write voiceover
-        voiceover_path = output_dir / f"voiceover_{keyframe_num}.mp3"
-        async with aiofiles.open(voiceover_path, "wb") as f:
-            await f.write(audio_data)
-        logger.info("Wrote voiceover %d to %s", keyframe_num, voiceover_path)
+        # Write voiceover if generated
+        if audio_data:
+            voiceover_path = output_dir / f"voiceover_{keyframe_num}.mp3"
+            async with aiofiles.open(voiceover_path, "wb") as f:
+                await f.write(audio_data)
+            logger.info("Wrote voiceover %d to %s", keyframe_num, voiceover_path)
         
-        # Generate image
-        print(f"\nStarting image generation for keyframe {keyframe_num}...")
-        image_result = await generate_image_for_keyframe(
-            leonardo_client,
-            desc,
-            visual_style,
-            images_dir,
-            keyframe_num
-        )
-        
-        # Generate video if requested
-        if generate_video and image_result[0]:  # image_path exists
-            if use_motion:
-                print(f"\nStarting motion generation for keyframe {keyframe_num}...")
-                await generate_motion_for_image(
+        # Only attempt image/video generation if we have a leonardo client and images directory
+        if leonardo_client and images_dir:
+            # Read the optimized prompt if it exists
+            prompt_file = output_dir / f"keyframe_prompt_{keyframe_num}.txt"
+            try:
+                async with aiofiles.open(prompt_file, "r", encoding="utf-8") as f:
+                    optimized_prompt = await f.read()
+                logger.info(f"Using optimized prompt from {prompt_file}")
+                # Generate image using the optimized prompt
+                print(f"\nStarting image generation for keyframe {keyframe_num} using optimized prompt...")
+                image_result = await generate_image_for_keyframe(
                     leonardo_client,
-                    image_result[2],  # image_id
+                    optimized_prompt,
+                    visual_style,
                     images_dir,
                     keyframe_num
                 )
-            else:
-                print(f"\nGenerating static video for keyframe {keyframe_num}...")
-                await generate_static_video_from_image(
-                    image_result[0],  # image_path
+            except FileNotFoundError:
+                logger.warning(f"No optimized prompt found at {prompt_file}, using original description")
+                print(f"\nStarting image generation for keyframe {keyframe_num} using original description...")
+                image_result = await generate_image_for_keyframe(
+                    leonardo_client,
+                    desc,
+                    visual_style,
                     images_dir,
                     keyframe_num
                 )
+            
+            # Generate video if requested
+            if generate_video and image_result[0]:  # image_path exists
+                if use_motion:
+                    print(f"\nStarting motion generation for keyframe {keyframe_num}...")
+                    await generate_motion_for_image(
+                        leonardo_client,
+                        image_result[2],  # image_id
+                        images_dir,
+                        keyframe_num
+                    )
+                else:
+                    print(f"\nGenerating static video for keyframe {keyframe_num}...")
+                    await generate_static_video_from_image(
+                        image_result[0],  # image_path
+                        images_dir,
+                        keyframe_num
+                    )
         
         # Print feedback
         print(f"Keyframe {keyframe_num} Description:\n{desc}\n")
-        print(f"Keyframe {keyframe_num} Dialog/Narration:\n{dialog}\n")
-        print(f"Voiceover saved to: {voiceover_path}\n")
+        print(f"Keyframe {keyframe_num} Dialog/Narration:\n{dialog.text}\n")
+        if audio_data:
+            print(f"Voiceover saved to: {voiceover_path}\n")
         print("=" * 80)
         
     except Exception as e:
@@ -299,18 +324,27 @@ async def async_main(args: argparse.Namespace) -> None:
     config = {
         "configurable": {
             "thread_id": args.thread_id,
-            "extract_chars": args.characters
+            "extract_chars": args.characters,
+            "generate_voiceover": args.voiceover,
+            "generate_images": bool(args.images),  # Convert to bool since args.images will be a string path
+            "save_script": args.script,
+            "num_keyframes": args.keyframes,
+            "output_dir": args.output_dir
         }
     }
     
     logger.info("Starting story generation with thread ID: %s", args.thread_id)
+    logger.debug("Config values: %s", config["configurable"])
     story_result = generate_story.invoke({"keywords": args.keywords}, config=config)
     
     if not story_result:
         logger.error("Story generation failed")
         return
         
-    story, characters = story_result
+    story, characters, scripts = story_result
+    logger.debug("Story result unpacked - scripts type: %s", type(scripts))
+    if scripts:
+        logger.debug("Scripts tuple contents: %s", scripts)
     
     print("\nGenerating story with keywords:", ", ".join(args.keywords))
     print("=" * 80 + "\n")
@@ -330,16 +364,7 @@ async def async_main(args: argparse.Namespace) -> None:
             characters_file = output_dir / "characters.json"
             async with aiofiles.open(characters_file, "w", encoding="utf-8") as f:
                 # Convert characters to dict for JSON serialization
-                characters_data = [
-                    {
-                        "role": char.role,
-                        "name": char.name,
-                        "backstory": char.backstory,
-                        "physical_description": char.physical_description,
-                        "personality": char.personality
-                    }
-                    for char in characters
-                ]
+                characters_data = [char.model_dump() for char in characters]
                 await f.write(json.dumps({"characters": characters_data}, indent=2))
             logger.info("Wrote character profiles to %s", characters_file)
             print("\nGenerated Character Profiles:")
@@ -347,14 +372,64 @@ async def async_main(args: argparse.Namespace) -> None:
                 print(f"- {char.name} ({char.role})")
             print("=" * 80 + "\n")
         
+        # Write full script if requested
+        if args.script and scripts:
+            original_script, enhanced_script = scripts
+            logger.debug("Unpacking scripts for writing to file:")
+            logger.debug("Original script length: %d", len(original_script))
+            logger.debug("Enhanced script length: %d", len(enhanced_script))
+            
+            script_file = output_dir / "script.txt"
+            async with aiofiles.open(script_file, "w", encoding="utf-8") as f:
+                logger.debug("Writing original script to file...")
+                # Write original script
+                await f.write("# Original Story Script\n\n")
+                await f.write(original_script)
+                await f.write("\n\n" + "=" * 80 + "\n\n")
+                
+                logger.debug("Writing enhanced script to file...")
+                # Write enhanced script with character details
+                await f.write("# Enhanced Story Script\n")
+                await f.write("(Incorporating character details and backgrounds)\n\n")
+                await f.write(enhanced_script)
+                await f.write("\n\n" + "=" * 80 + "\n\n")
+                
+                logger.debug("Writing scene breakdown to file...")
+                # Write scene breakdown
+                await f.write("# Scene Breakdown\n\n")
+                for idx, (desc, dialog, _, _) in enumerate(story, start=1):
+                    await f.write(f"Scene {idx}:\n")
+                    await f.write(f"Description: {desc}\n")
+                    await f.write(f"Narration: {dialog.text}\n")
+                    await f.write(f"Spoken by: {dialog.character.name} ({dialog.character.role})\n\n")
+            logger.info("Wrote full script to %s", script_file)
+            print("\nFull script (original and enhanced versions) saved to:", script_file)
+            print("=" * 80 + "\n")
+        
+        # Generate voiceovers if requested
+        voiceovers = None
+        if args.voiceover:
+            logger.info("Launching parallel voiceover generation for %d keyframes", len(story))
+            async def generate_voiceover_async(dialog: DialogResponse) -> bytes:
+                """Generate voiceover for a single dialog"""
+                try:
+                    response = generate_speech_from_text(dialog.text, character=dialog.character.role.value)
+                    return response.read()
+                except Exception as e:
+                    logger.error(f"Failed to generate voiceover: {str(e)}")
+                    raise
+            
+            voiceover_tasks = [generate_voiceover_async(dialog) for _, dialog, _, _ in story]
+            voiceovers = await asyncio.gather(*voiceover_tasks)
+        
         # Process all keyframes in parallel
         tasks = []
-        for idx, (desc, dialog, _, audio_data) in enumerate(story, start=1):
+        for idx, (desc, dialog, _, _) in enumerate(story, start=1):
             task = process_keyframe(
                 leonardo_client,
                 desc,
                 dialog,
-                audio_data,
+                voiceovers[idx-1] if voiceovers else None,
                 visual_style,
                 idx,
                 output_dir,
@@ -377,9 +452,13 @@ def main():
     parser.add_argument("--motion", action="store_true", help="Generate motion video for the first keyframe image")
     parser.add_argument("--static-vid", action="store_true", help="Generate static videos (5 seconds) from keyframe images")
     parser.add_argument("--characters", action="store_true", help="Extract and save character profiles to characters.json")
+    parser.add_argument("--voiceover", action="store_true", help="Generate voiceover audio for each keyframe")
+    parser.add_argument("--script", action="store_true", help="Save the full story script to script.txt")
+    parser.add_argument("--keyframes", type=int, default=4, help="Number of keyframes to generate (default: 4)")
     
     args = parser.parse_args()
     
+    # Set debug logging if flag is provided
     if args.debug:
         logger.setLevel(logging.DEBUG)
         logger.debug("Debug logging enabled")

@@ -47,7 +47,7 @@ class VisualStyleResponse(BaseModel):
     style: LeonardoStyles
 
 class DialogResponse(BaseModel):
-    character: Role
+    character: Character
     text: str
 
 class Keyframe(BaseModel):
