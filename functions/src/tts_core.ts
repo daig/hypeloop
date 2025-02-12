@@ -1,7 +1,6 @@
 import {OpenAI} from 'openai';
-import * as dotenv from 'dotenv';
-import * as path from 'path';
 import {Role} from './schemas.js';
+import {openAiKey} from './config.js';
 
 // OpenAI's supported voice types
 type OpenAIVoice = 'alloy' | 'ash' | 'coral' | 'echo' | 'fable' | 'onyx' | 'nova' | 'sage' | 'shimmer';
@@ -33,6 +32,18 @@ export function getVoiceForCharacter(character: Role): OpenAIVoice {
 
 type TTSModel = 'tts-1' | 'tts-1-hd';
 
+// Initialize OpenAI client (lazy loading)
+let client: OpenAI;
+
+function getOpenAIClient(): OpenAI {
+  if (!client) {
+    client = new OpenAI({
+      apiKey: openAiKey.value()
+    });
+  }
+  return client;
+}
+
 /**
  * Generate speech from text using OpenAI's TTS API
  * @param text - The text to convert to speech
@@ -45,20 +56,11 @@ export async function generateSpeechFromText(
   character: Role = 'narrator',
   model: TTSModel = 'tts-1'
 ): Promise<ArrayBuffer> {
-  // Load environment variables from two directories up
-  const envPath = path.join(__dirname, '..', '.env');
-  dotenv.config({ path: envPath });
-
-  // Initialize OpenAI client
-  const client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-  });
-
   try {
     const voice = getVoiceForCharacter(character);
 
     // Generate speech
-    const response = await client.audio.speech.create({
+    const response = await getOpenAIClient().audio.speech.create({
       model,
       voice,
       input: text,

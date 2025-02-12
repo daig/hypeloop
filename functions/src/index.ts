@@ -11,13 +11,17 @@ import {onCall, onRequest, HttpsError} from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import Mux from "@mux/mux-node";
 import crypto from "crypto";
-import {defineString} from "firebase-functions/params";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { createCanvas, CanvasRenderingContext2D } from 'canvas';
 import GIFEncoder from 'gifencoder';
 import { generateStory } from './story_generator.js';
 import type { StoryInput, StoryConfig } from './story_generator.js';
+import {
+  muxTokenId,
+  muxTokenSecret,
+  muxWebhookSecret
+} from './config.js';
 
 // Initialize Firebase Admin
 initializeApp();
@@ -25,15 +29,19 @@ initializeApp();
 // Initialize Firestore
 const db = getFirestore();
 
-const muxTokenId = defineString("MUX_TOKEN_ID");
-const muxTokenSecret = defineString("MUX_TOKEN_SECRET");
-const muxWebhookSecret = defineString("MUX_WEBHOOK_SECRET");
-
 interface UploadRequest {
   filename: string;
   fileSize: number;
   contentType: string;
   description: string;
+}
+
+// Function to get Mux client (initialized at runtime)
+function getMuxClient(): Mux {
+  return new Mux({
+    tokenId: muxTokenId.value(),
+    tokenSecret: muxTokenSecret.value()
+  });
 }
 
 // Function to generate a presigned URL for direct uploads to Mux
@@ -70,10 +78,7 @@ export const getVideoUploadUrl = onCall({
         }
 
         // Initialize Mux client with credentials at runtime
-        const muxClient = new Mux({
-            tokenId: muxTokenId.value(),
-            tokenSecret: muxTokenSecret.value(),
-        });
+        const muxClient = getMuxClient();
 
         logger.info("Creating direct upload URL", {
             filename: data.filename,

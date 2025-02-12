@@ -1,11 +1,11 @@
 import {OpenAI} from 'openai';
 import {task, entrypoint, MemorySaver} from '@langchain/langgraph';
 import type {LangGraphRunnableConfig} from '@langchain/langgraph';
-import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import {z} from 'zod';
 import {zodResponseFormat} from 'openai/helpers/zod';
+import {openAiKey} from './config.js';
 import {
   type Character,
   type Characters,
@@ -28,14 +28,18 @@ import {
   KEYFRAME_SCENE_GENERATION_PROMPT
 } from './prompts.js';
 
-// Load environment variables
-const envPath = path.join(__dirname, '..', '.env');
-dotenv.config({ path: envPath });
-
 // Initialize OpenAI client
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+let client: OpenAI;
+
+// Helper function to get OpenAI client (initialized at runtime)
+function getOpenAIClient(): OpenAI {
+  if (!client) {
+    client = new OpenAI({
+      apiKey: openAiKey.value()
+    });
+  }
+  return client;
+}
 
 // Helper function to invoke OpenAI chat completion
 async function invokeChatCompletion<T>(
@@ -52,7 +56,7 @@ async function invokeChatCompletion<T>(
     // Get the schema description or fall back to a generic name
     const schemaDescription = responseFormat.schema.description || 'structured_response';
 
-    const completion = await client.beta.chat.completions.parse({
+    const completion = await getOpenAIClient().beta.chat.completions.parse({
       ...params,
       response_format: zodResponseFormat(responseFormat.schema, schemaDescription)
     });
@@ -63,7 +67,7 @@ async function invokeChatCompletion<T>(
     }
     return message.parsed as T;
   } else {
-    const response = await client.chat.completions.create(params);
+    const response = await getOpenAIClient().chat.completions.create(params);
     return response.choices[0].message.content!;
   }
 }
