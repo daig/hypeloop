@@ -20,7 +20,8 @@ from prompts import (
     CHARACTER_EXTRACTION_PROMPT,
     SCRIPT_ENHANCEMENT_PROMPT,
     LEONARDO_PROMPT_OPTIMIZATION,
-    WORDS_PER_KEYFRAME
+    WORDS_PER_KEYFRAME,
+    KEYFRAME_SCENE_GENERATION_PROMPT
 )
 from schemas import (
     LeonardoStyles,
@@ -30,7 +31,9 @@ from schemas import (
     Keyframe,
     KeyframeResponse,
     Character,
-    Characters
+    Characters,
+    KeyframesWithDialog,
+    KeyframeScene
 )
 from tts_core import generate_speech_from_text
 
@@ -114,10 +117,10 @@ def generate_script(keywords: List[str]) -> str:
     return script
 
 @task
-def extract_keyframes(script: str, num_keyframes: int) -> List[Dict[str, str]]:
+def extract_keyframes(script: str, num_keyframes: int) -> KeyframeResponse:
     """
     Breaks the screenplay into key visual moments ("keyframes") optimized for prompting an image generator.
-    Returns the keyframes directly as a list of dictionaries.
+    Returns a KeyframeResponse containing the keyframes.
     """
     logger.info("Extracting keyframes from script")
     start_time = time.time()
@@ -128,18 +131,15 @@ def extract_keyframes(script: str, num_keyframes: int) -> List[Dict[str, str]]:
     )
     logger.debug("Sending keyframe extraction prompt to OpenAI")
     
-    # Use beta parsing with our Pydantic schema.
     response = invoke_chat_completion(prompt, response_format=KeyframeResponse)
     # Access the parsed result from the beta response.
     parsed_message = response.choices[0].message.parsed
-    keyframes = parsed_message.keyframes
     log_prompt_and_response(prompt, str(parsed_message), "Keyframe Extraction")
     
     elapsed_time = time.time() - start_time
-    logger.info("Extracted %d keyframes in %.2f seconds", len(keyframes), elapsed_time)
+    logger.info("Extracted %d keyframes in %.2f seconds", len(parsed_message.keyframes), elapsed_time)
     
-    # Convert each Pydantic model instance to a dict.
-    return [kf.model_dump() for kf in keyframes]
+    return parsed_message
 
 @task
 def extract_dialog(script: str, keyframe_description: str, characters: List[Character]) -> DialogResponse:
@@ -212,22 +212,22 @@ def determine_visual_style(script: str) -> LeonardoStyles:
     return style
 
 @task
-def generate_voiceover(dialog: DialogResponse) -> bytes:
+def generate_voiceover(scene: KeyframeScene) -> bytes:
     """
-    Generates audio voiceover for the given dialog using TTS.
+    Generates audio voiceover for the given scene using TTS.
     
     Args:
-        dialog: The DialogResponse containing character and text
+        scene: The KeyframeScene containing character and dialog
         
     Returns:
         Audio data as bytes
     """
-    logger.info(f"Generating voiceover for {dialog.character.name} ({dialog.character.role}): {dialog.text[:50]}...")
+    logger.info(f"Generating voiceover for {scene.character.name} ({scene.character.role}): {scene.dialog[:50]}...")
     start_time = time.time()
     
     try:
         # Extract role from character for TTS
-        response = generate_speech_from_text(dialog.text, character=dialog.character.role.value)
+        response = generate_speech_from_text(scene.dialog, character=scene.character.role.value)
         audio_data = response.read()
         
         elapsed_time = time.time() - start_time
@@ -300,30 +300,30 @@ def enhance_script(script: str, characters: List[Character], num_keyframes: int)
     return enhanced_script
 
 @task
-def optimize_leonardo_prompts(keyframes: List[Dict[str, str]], visual_style: LeonardoStyles, output_dir: str) -> List[str]:
+def optimize_leonardo_prompts(keyframes: List[Dict[str, Any]], visual_style: LeonardoStyles, output_dir: str) -> List[str]:
     """
-    Optimizes all keyframe descriptions together into prompts specifically crafted for Leonardo's Flux Schnell model.
+    Optimizes all scene descriptions together into prompts specifically crafted for Leonardo's Flux Schnell model.
     This ensures visual consistency across all generated images.
     
     Args:
-        keyframes: List of keyframe dictionaries containing descriptions
+        keyframes: List of scene dictionaries containing descriptions, titles, and character info
         visual_style: The chosen visual style for the story
         output_dir: Directory to save the prompt files
         
     Returns:
         List of optimized prompt strings for Leonardo
     """
-    logger.info("Optimizing all keyframes for Leonardo prompts")
+    logger.info("Optimizing all scenes for Leonardo prompts")
     start_time = time.time()
     
-    # Format all keyframe descriptions
-    keyframe_descriptions = "\n\n".join(
-        f"Keyframe {idx + 1}:\n{kf['description']}"
+    # Format all scene descriptions with character information
+    scene_descriptions = "\n\n".join(
+        f"Scene {idx + 1}:\nTitle: {kf['title']}\nDescription: {kf['description']}\nCharacters Present: {', '.join(kf['characters_in_scene']) if kf['characters_in_scene'] else 'None'}"
         for idx, kf in enumerate(keyframes)
     )
     
     prompt = LEONARDO_PROMPT_OPTIMIZATION.format(
-        keyframe_descriptions=keyframe_descriptions,
+        keyframe_descriptions=scene_descriptions,
         visual_style=visual_style
     )
     
@@ -360,7 +360,7 @@ def optimize_leonardo_prompts(keyframes: List[Dict[str, str]], visual_style: Leo
     
     logger.info(f"Saving optimized prompts to directory: {output_path}")
     for idx, prompt_text in enumerate(optimized_prompts, 1):
-        prompt_file = output_path / f"keyframe_prompt_{idx}.txt"
+        prompt_file = output_path / f"scene_prompt_{idx}.txt"
         try:
             prompt_file.write_text(prompt_text)
             logger.info(f"Saved prompt {idx} to {prompt_file}")
@@ -369,15 +369,64 @@ def optimize_leonardo_prompts(keyframes: List[Dict[str, str]], visual_style: Leo
         except Exception as e:
             logger.error(f"Failed to save prompt {idx} to {prompt_file}: {e}")
     
-    log_prompt_and_response(prompt, full_response, "Leonardo Prompt Optimization (All Keyframes)")
+    log_prompt_and_response(prompt, full_response, "Leonardo Prompt Optimization (All Scenes)")
     
     elapsed_time = time.time() - start_time
     logger.info(f"Prompt optimization completed in {elapsed_time:.2f} seconds. Generated {len(optimized_prompts)} prompts.")
     
     return optimized_prompts
 
+@task
+def generate_keyframe_scenes(keyframe: Keyframe, characters: List[Character], previously_seen_characters: set) -> KeyframesWithDialog:
+    """
+    For each keyframe, generates two connected scenes:
+    1. A narration scene that introduces new characters and sets the stage
+    2. A character dialog scene that captures the primary actions
+    
+    Args:
+        keyframe: The keyframe to generate scenes for
+        characters: List of all available characters
+        previously_seen_characters: Set of character names that have appeared in previous scenes
+        
+    Returns:
+        KeyframesWithDialog containing two scenes for this keyframe
+    """
+    logger.info(f"Generating scenes for keyframe: {keyframe.title}")
+    start_time = time.time()
+    
+    # Create character profiles string
+    character_profiles = "\n".join([
+        f"Character: {char.name} ({char.role})\n"
+        f"Personality: {char.personality}\n"
+        f"Physical Description: {char.physical_description}\n"
+        "---"
+        for char in characters
+    ])
+    
+    # Format the prompt
+    prompt = KEYFRAME_SCENE_GENERATION_PROMPT.format(
+        title=keyframe.title,
+        description=keyframe.description,
+        characters_in_scene=", ".join(keyframe.characters_in_scene),
+        character_profiles=character_profiles
+    )
+    
+    # Generate the scenes using structured output
+    response = invoke_chat_completion(prompt, response_format=KeyframesWithDialog)
+    scenes = response.choices[0].message.parsed
+    
+    # Update the set of previously seen characters
+    for scene in scenes.scenes:
+        for char_name in scene.characters_in_scene:
+            previously_seen_characters.add(char_name)
+    
+    elapsed_time = time.time() - start_time
+    logger.info(f"Generated {len(scenes.scenes)} scenes in {elapsed_time:.2f} seconds")
+    
+    return scenes
+
 @entrypoint(checkpointer=MemorySaver())
-def generate_story(inputs: Dict[str, List[str]], config: Dict[str, Any] = None) -> Tuple[List[Tuple[str, DialogResponse, str, bytes | None]], Optional[List[Character]], Optional[Tuple[str, str]]]:
+def generate_story(inputs: Dict[str, List[str]], config: Dict[str, Any] = None) -> Tuple[List[Tuple[str, List[KeyframeScene], str, bytes | None]], Optional[List[Character]], Optional[Tuple[str, str]]]:
     """
     Public interface function that ties the OpenAI steps together.
 
@@ -393,7 +442,7 @@ def generate_story(inputs: Dict[str, List[str]], config: Dict[str, Any] = None) 
 
     Output:
       - A tuple of:
-        - List of tuples (keyframe description, dialog response, visual style, audio_data)
+        - List of tuples (keyframe description, list of scenes, visual style, audio_data)
           Note: audio_data will be None if voiceover generation is disabled
         - Optional list of Character objects if extract_chars is True
         - Optional tuple of (original_script, enhanced_script) if script output is requested
@@ -436,39 +485,67 @@ def generate_story(inputs: Dict[str, List[str]], config: Dict[str, Any] = None) 
     
     # Wait for all initial tasks to complete
     results = {name: task.result() for name, task in tasks.items()}
-    keyframes = results['keyframes']
+    keyframes = results['keyframes'].keyframes
     visual_style = results['visual_style']
     
-    # If image generation is enabled, optimize all keyframe descriptions together for Leonardo
+    # Track which characters have been introduced
+    previously_seen_characters = set()
+    
+    # Generate scenes for each keyframe
+    logger.info("Generating scenes for each keyframe")
+    scene_tasks = [
+        generate_keyframe_scenes(kf, characters, previously_seen_characters)
+        for kf in keyframes
+    ]
+    
+    # Wait for all scene generation to complete
+    all_scenes = [task.result() for task in scene_tasks]
+    
+    # If image generation is enabled, optimize all scene descriptions together for Leonardo
     if should_generate_images:
-        logger.info("Optimizing all keyframe descriptions together for Leonardo")
-        optimized_prompts = optimize_leonardo_prompts(keyframes, visual_style, output_dir).result()
-        # Update keyframe descriptions with optimized prompts for Leonardo
-        for kf, optimized_prompt in zip(keyframes, optimized_prompts):
-            kf["leonardo_prompt"] = optimized_prompt
+        logger.info("Optimizing all scene descriptions together for Leonardo")
+        # Flatten all scenes into a list of descriptions
+        scene_descriptions = [
+            {
+                "description": scene.description,
+                "characters_in_scene": scene.characters_in_scene,
+                "title": scene.title
+            }
+            for keyframe_scenes in all_scenes
+            for scene in keyframe_scenes.scenes
+        ]
+        optimized_prompts = optimize_leonardo_prompts(scene_descriptions, visual_style, output_dir).result()
+        
+        # Update scene descriptions with optimized prompts for Leonardo
+        prompt_idx = 0
+        for keyframe_scenes in all_scenes:
+            for scene in keyframe_scenes.scenes:
+                scene.leonardo_prompt = optimized_prompts[prompt_idx]
+                prompt_idx += 1
     
-    # First, launch all dialog extraction tasks in parallel
-    logger.info("Launching parallel dialog extraction for %d keyframes", len(keyframes))
-    # Use original descriptions for dialog, not the optimized prompts
-    dialog_tasks = [extract_dialog(enhanced_script, kf["description"], characters) for kf in keyframes]
-    
-    # Wait for all dialogs to complete
-    dialogs = [task.result() for task in dialog_tasks]
-    
-    # Generate voiceovers only if requested
+    # Generate voiceovers if requested
     voiceovers = []
     if should_generate_voiceover:
-        logger.info("Launching parallel voiceover generation for %d keyframes", len(keyframes))
-        voiceover_tasks = [generate_voiceover(dialog) for dialog in dialogs]
+        logger.info("Launching parallel voiceover generation for all scenes")
+        voiceover_tasks = [
+            generate_voiceover(scene)
+            for keyframe_scenes in all_scenes
+            for scene in keyframe_scenes.scenes
+        ]
         voiceovers = [task.result() for task in voiceover_tasks]
+        
+        # Group voiceovers back by keyframe (2 scenes per keyframe)
+        grouped_voiceovers = [
+            voiceovers[i:i+2] for i in range(0, len(voiceovers), 2)
+        ]
+        voiceovers = grouped_voiceovers
     else:
-        voiceovers = [None] * len(dialogs)
+        voiceovers = [None] * len(all_scenes)
     
-    # Combine results - ALWAYS use original description for the story output
-    # The leonardo_prompt is only used by the image generation pipeline
+    # Combine results - now using the first scene's description as the keyframe description
     story_results = [
-        (kf["description"], dialog, visual_style, voiceover)
-        for kf, dialog, voiceover in zip(keyframes, dialogs, voiceovers)
+        (scenes.scenes[0].description, scenes.scenes, visual_style, voiceover)
+        for scenes, voiceover in zip(all_scenes, voiceovers)
     ]
     
     total_time = time.time() - start_time

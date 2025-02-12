@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from story_generator import generate_story, logger, Role
 from leonardo_api import LeonardoAPI, LeonardoStyles
-from schemas import DialogResponse
+from schemas import DialogResponse, KeyframeScene
 from dotenv import load_dotenv
 from typing import Tuple, Dict, Any, List, Optional
 import subprocess
@@ -23,81 +23,112 @@ async def generate_image_for_keyframe(leonardo_client: LeonardoAPI,
                               keyframe_desc: str, 
                               visual_style: str,
                               output_dir: Path,
-                              keyframe_num: int) -> tuple[Path | None, str | None, str | None]:
+                              keyframe_num: int,
+                              max_retries: int = 2) -> tuple[Path | None, str | None, str | None]:
     """
     Generate an image for a keyframe using the Leonardo API.
+    If generation fails, retries with a modified prompt.
     Returns tuple of (image_path, generation_id, image_id) if successful, (None, None, None) otherwise.
     """
-    try:
-        # Convert string style to enum
-        style = LeonardoStyles(visual_style.lower())
-        
-        # Generate the image - run in executor since it's not async
-        loop = asyncio.get_event_loop()
-        generation_result = await loop.run_in_executor(
-            None, 
-            lambda: leonardo_client.generate_image_for_keyframe(keyframe_desc, style)
-        )
-        
-        if not generation_result:
-            logger.error(f"Failed to generate image for keyframe {keyframe_num}")
-            return None, None, None
-
-        generation_id, _ = generation_result
-
-        # Poll for completion and get result - run in executor since it's not async
-        while True:
-            poll_result = await loop.run_in_executor(
-                None,
-                lambda: leonardo_client.poll_generation_status(generation_id)
+    async def attempt_generation(prompt: str, attempt: int = 1) -> tuple[Path | None, str | None, str | None]:
+        try:
+            # Convert string style to enum
+            style = LeonardoStyles(visual_style.lower())
+            
+            # Generate the image - run in executor since it's not async
+            loop = asyncio.get_event_loop()
+            generation_result = await loop.run_in_executor(
+                None, 
+                lambda: leonardo_client.generate_image_for_keyframe(prompt, style)
             )
             
-            if poll_result:
-                generation_data, image_id = poll_result
-                if generation_data.get("status") == "COMPLETE":
-                    generated_images = generation_data.get("generated_images", [])
-                    if generated_images:
-                        image_url = generated_images[0].get("url")
-                        if image_url:
-                            # Download image
-                            image_filename = f"keyframe_{keyframe_num}.jpg"
-                            image_path = output_dir / image_filename
-                            
-                            # Use aiohttp to download the image asynchronously
-                            async with aiohttp.ClientSession() as session:
-                                async with session.get(image_url) as response:
-                                    if response.status == 200:
-                                        content = await response.read()
-                                        async with aiofiles.open(image_path, "wb") as f:
-                                            await f.write(content)
-                                        logger.info(f"Saved image for keyframe {keyframe_num} to {image_path}")
-                                        return image_path, str(generation_id), image_id
-                                    else:
-                                        logger.error(f"Failed to download image for keyframe {keyframe_num}: {response.status}")
-                        else:
-                            logger.error(f"No image URL in response for keyframe {keyframe_num}")
-                    else:
-                        logger.error(f"No generated images in response for keyframe {keyframe_num}")
-                    break
-                elif generation_data.get("status") in ["FAILED", "DELETED"]:
-                    logger.error(f"Generation failed for keyframe {keyframe_num} with status: {generation_data.get('status')}")
-                    break
-                # If still pending, wait a bit before polling again
-                await asyncio.sleep(2)
-            else:
-                logger.error(f"Poll failed for keyframe {keyframe_num}")
-                break
+            if not generation_result:
+                logger.error(f"Failed to generate image for keyframe {keyframe_num} (attempt {attempt})")
+                return None, None, None
+
+            generation_id, _ = generation_result
+
+            # Poll for completion and get result - run in executor since it's not async
+            start_time = time.time()
+            max_poll_time = 300  # 5 minutes maximum polling time
+            
+            while True:
+                # Check if we've exceeded maximum polling time
+                if time.time() - start_time > max_poll_time:
+                    logger.error(f"Image generation timed out after {max_poll_time} seconds for keyframe {keyframe_num} (attempt {attempt})")
+                    return None, None, None
                 
-    except Exception as e:
-        logger.error(f"Error generating image for keyframe {keyframe_num}: {e}")
-    
+                poll_result = await loop.run_in_executor(
+                    None,
+                    lambda: leonardo_client.poll_generation_status(generation_id)
+                )
+                
+                if poll_result:
+                    generation_data, image_id = poll_result
+                    if generation_data.get("status") == "COMPLETE":
+                        generated_images = generation_data.get("generated_images", [])
+                        if generated_images:
+                            image_url = generated_images[0].get("url")
+                            if image_url:
+                                # Download image
+                                image_filename = f"keyframe_{keyframe_num}.jpg"
+                                image_path = output_dir / image_filename
+                                
+                                # Use aiohttp to download the image asynchronously
+                                async with aiohttp.ClientSession() as session:
+                                    async with session.get(image_url) as response:
+                                        if response.status == 200:
+                                            content = await response.read()
+                                            async with aiofiles.open(image_path, "wb") as f:
+                                                await f.write(content)
+                                            logger.info(f"Saved image for keyframe {keyframe_num} to {image_path} (attempt {attempt})")
+                                            return image_path, str(generation_id), image_id
+                                        else:
+                                            logger.error(f"Failed to download image for keyframe {keyframe_num}: {response.status} (attempt {attempt})")
+                            else:
+                                logger.error(f"No image URL in response for keyframe {keyframe_num} (attempt {attempt})")
+                        else:
+                            logger.error(f"No generated images in response for keyframe {keyframe_num} (attempt {attempt})")
+                        break
+                    elif generation_data.get("status") in ["FAILED", "DELETED"]:
+                        logger.error(f"Generation failed for keyframe {keyframe_num} with status: {generation_data.get('status')} (attempt {attempt})")
+                        break
+                    # If still pending, wait a bit before polling again
+                    await asyncio.sleep(2)
+                else:
+                    logger.error(f"Poll failed for keyframe {keyframe_num} (attempt {attempt})")
+                    break
+                    
+        except Exception as e:
+            logger.error(f"Error generating image for keyframe {keyframe_num}: {e} (attempt {attempt})")
+        
+        return None, None, None
+
+    # First attempt with original prompt
+    result = await attempt_generation(keyframe_desc, 1)
+    if result[0]:  # If successful (image_path exists)
+        return result
+
+    # If first attempt failed, try with modified prompts
+    for retry in range(2, max_retries + 1):
+        # Modify the prompt to be more specific and detailed
+        modified_prompt = f"{keyframe_desc} Detailed high quality illustration, perfect composition, professional photography, 8k resolution."
+        logger.info(f"Retrying image generation for keyframe {keyframe_num} with modified prompt (attempt {retry})")
+        result = await attempt_generation(modified_prompt, retry)
+        if result[0]:  # If successful
+            return result
+
+    # If all attempts failed
+    logger.error(f"All {max_retries} attempts to generate image for keyframe {keyframe_num} failed")
     return None, None, None
 
 async def generate_motion_for_image(leonardo_client: LeonardoAPI,
                             image_id: str,
                             output_dir: Path,
-                            keyframe_num: int) -> None:
-    """Generate a motion video for an image using the Leonardo API."""
+                            keyframe_num: int,
+                            image_path: Path) -> None:
+    """Generate a motion video for an image using the Leonardo API.
+    Falls back to static video generation if motion generation fails."""
     try:
         # Generate motion using the SVD endpoint - run in executor since it's not async
         loop = asyncio.get_event_loop()
@@ -107,11 +138,21 @@ async def generate_motion_for_image(leonardo_client: LeonardoAPI,
         )
         
         if not motion_generation_id:
-            logger.error(f"Failed to start motion generation for keyframe {keyframe_num}")
+            logger.error(f"Failed to start motion generation for keyframe {keyframe_num}, falling back to static video")
+            await generate_static_video_from_image(image_path, output_dir, keyframe_num)
             return
 
-        # Poll for completion and get result
+        # Poll for completion with timeout
+        start_time = time.time()
+        max_poll_time = 300  # 5 minutes maximum polling time
+        
         while True:
+            # Check if we've exceeded maximum polling time
+            if time.time() - start_time > max_poll_time:
+                logger.error(f"Motion generation timed out after {max_poll_time} seconds for keyframe {keyframe_num}, falling back to static video")
+                await generate_static_video_from_image(image_path, output_dir, keyframe_num)
+                return
+            
             motion_result = await loop.run_in_executor(
                 None,
                 lambda: leonardo_client.poll_motion_status(motion_generation_id)
@@ -124,28 +165,44 @@ async def generate_motion_for_image(leonardo_client: LeonardoAPI,
                         logger.info(f"Got video URL for keyframe {keyframe_num}: {video_url}")
                         video_path = output_dir / f"keyframe_{keyframe_num}.mp4"
                         
-                        # Download video asynchronously
-                        async with aiohttp.ClientSession() as session:
-                            async with session.get(video_url) as response:
-                                if response.status == 200:
-                                    content = await response.read()
-                                    async with aiofiles.open(video_path, "wb") as f:
-                                        await f.write(content)
-                                    logger.info(f"Saved motion video for keyframe {keyframe_num} to {video_path}")
-                                else:
-                                    logger.error(f"Failed to download motion video for keyframe {keyframe_num}: {response.status}")
+                        try:
+                            # Download video asynchronously
+                            async with aiohttp.ClientSession() as session:
+                                async with session.get(video_url) as response:
+                                    if response.status == 200:
+                                        content = await response.read()
+                                        async with aiofiles.open(video_path, "wb") as f:
+                                            await f.write(content)
+                                        logger.info(f"Saved motion video for keyframe {keyframe_num} to {video_path}")
+                                        return
+                                    else:
+                                        logger.error(f"Failed to download motion video for keyframe {keyframe_num}: {response.status}, falling back to static video")
+                                        await generate_static_video_from_image(image_path, output_dir, keyframe_num)
+                                        return
+                        except Exception as e:
+                            logger.error(f"Error downloading motion video for keyframe {keyframe_num}: {e}, falling back to static video")
+                            await generate_static_video_from_image(image_path, output_dir, keyframe_num)
+                            return
                     else:
-                        logger.error(f"No video URL in motion generation response for keyframe {keyframe_num}")
+                        logger.error(f"No video URL in motion generation response for keyframe {keyframe_num}, falling back to static video")
+                        await generate_static_video_from_image(image_path, output_dir, keyframe_num)
+                        return
                     break
                 elif motion_result.get("status") in ["FAILED", "DELETED"]:
-                    logger.error(f"Motion generation failed for keyframe {keyframe_num}")
-                    break
+                    logger.error(f"Motion generation failed for keyframe {keyframe_num} with status: {motion_result.get('status')}, falling back to static video")
+                    await generate_static_video_from_image(image_path, output_dir, keyframe_num)
+                    return
                 # If still pending, wait a bit before polling again
                 await asyncio.sleep(2)
-        else:
-            logger.error(f"Motion generation failed for keyframe {keyframe_num}")
+            else:
+                logger.error(f"Poll failed for keyframe {keyframe_num}, falling back to static video")
+                await generate_static_video_from_image(image_path, output_dir, keyframe_num)
+                return
+                
     except Exception as e:
-        logger.error(f"Error generating motion for keyframe {keyframe_num}: {e}", exc_info=True)
+        logger.error(f"Error generating motion for keyframe {keyframe_num}: {e}, falling back to static video")
+        await generate_static_video_from_image(image_path, output_dir, keyframe_num)
+        return
 
 def write_dialog_to_file(dialog: DialogResponse, output_path: str):
     """Write dialog to JSON file."""
@@ -206,7 +263,7 @@ async def generate_static_video_from_image(image_path: Path, output_dir: Path, k
 async def process_keyframe(
     leonardo_client: LeonardoAPI,
     desc: str,
-    dialog: DialogResponse,
+    scenes: List[KeyframeScene],
     audio_data: bytes | None,
     visual_style: str,
     keyframe_num: int,
@@ -217,80 +274,98 @@ async def process_keyframe(
 ) -> None:
     """Process a single keyframe including image generation and video creation"""
     try:
-        # Write keyframe description
+        # Write overall keyframe description
         keyframe_file = output_dir / f"keyframe_{keyframe_num}.txt"
         async with aiofiles.open(keyframe_file, "w", encoding="utf-8") as f:
             await f.write(desc)
         logger.info("Wrote keyframe %d to %s", keyframe_num, keyframe_file)
         
-        # Write dialog - convert to dict for JSON serialization
-        dialog_path = output_dir / f"dialog_{keyframe_num}.json"
-        dialog_dict = {
-            "character": dialog.character.model_dump(),
-            "text": dialog.text
-        }
-        async with aiofiles.open(dialog_path, "w", encoding="utf-8") as f:
-            await f.write(json.dumps(dialog_dict, indent=2))
-        logger.info("Wrote dialog %d to %s", keyframe_num, dialog_path)
+        # Write individual scene descriptions and dialog
+        for scene_idx, scene in enumerate(scenes, 1):
+            # Write scene description
+            scene_file = output_dir / f"scene_{keyframe_num}_{scene_idx}.txt"
+            async with aiofiles.open(scene_file, "w", encoding="utf-8") as f:
+                await f.write(f"Title: {scene.title}\n")
+                await f.write(f"Description: {scene.description}\n")
+                await f.write(f"Characters in scene: {', '.join(scene.characters_in_scene)}")
+            logger.info("Wrote scene %d.%d to %s", keyframe_num, scene_idx, scene_file)
+            
+            # Write dialog
+            dialog_path = output_dir / f"dialog_{keyframe_num}_{scene_idx}.json"
+            dialog_dict = {
+                "character": scene.character.model_dump(),
+                "dialog": scene.dialog
+            }
+            async with aiofiles.open(dialog_path, "w", encoding="utf-8") as f:
+                await f.write(json.dumps(dialog_dict, indent=2))
+            logger.info("Wrote dialog %d.%d to %s", keyframe_num, scene_idx, dialog_path)
         
         # Write voiceover if generated
         if audio_data:
-            voiceover_path = output_dir / f"voiceover_{keyframe_num}.mp3"
-            async with aiofiles.open(voiceover_path, "wb") as f:
-                await f.write(audio_data)
-            logger.info("Wrote voiceover %d to %s", keyframe_num, voiceover_path)
+            for scene_idx, scene_audio in enumerate(audio_data, 1):
+                if scene_audio:
+                    voiceover_path = output_dir / f"voiceover_{keyframe_num}_{scene_idx}.mp3"
+                    async with aiofiles.open(voiceover_path, "wb") as f:
+                        await f.write(scene_audio)
+                    logger.info("Wrote voiceover %d.%d to %s", keyframe_num, scene_idx, voiceover_path)
         
         # Only attempt image/video generation if we have a leonardo client and images directory
         if leonardo_client and images_dir:
-            # Read the optimized prompt if it exists
-            prompt_file = output_dir / f"keyframe_prompt_{keyframe_num}.txt"
-            try:
-                async with aiofiles.open(prompt_file, "r", encoding="utf-8") as f:
-                    optimized_prompt = await f.read()
-                logger.info(f"Using optimized prompt from {prompt_file}")
-                # Generate image using the optimized prompt
-                print(f"\nStarting image generation for keyframe {keyframe_num} using optimized prompt...")
-                image_result = await generate_image_for_keyframe(
+            # Generate images for all scenes in parallel
+            image_tasks = []
+            for scene_idx, scene in enumerate(scenes, 1):
+                # Use the optimized prompt if available, otherwise use the scene description
+                prompt = scene.leonardo_prompt if scene.leonardo_prompt else scene.description
+                print(f"\nStarting image generation for scene {keyframe_num}.{scene_idx}...")
+                task = generate_image_for_keyframe(
                     leonardo_client,
-                    optimized_prompt,
+                    prompt,
                     visual_style,
                     images_dir,
-                    keyframe_num
+                    f"{keyframe_num}_{scene_idx}",  # Updated to use scene-specific numbering
+                    max_retries=2
                 )
-            except FileNotFoundError:
-                logger.warning(f"No optimized prompt found at {prompt_file}, using original description")
-                print(f"\nStarting image generation for keyframe {keyframe_num} using original description...")
-                image_result = await generate_image_for_keyframe(
-                    leonardo_client,
-                    desc,
-                    visual_style,
-                    images_dir,
-                    keyframe_num
-                )
+                image_tasks.append((scene_idx, task))
             
-            # Generate video if requested
-            if generate_video and image_result[0]:  # image_path exists
-                if use_motion:
-                    print(f"\nStarting motion generation for keyframe {keyframe_num}...")
-                    await generate_motion_for_image(
-                        leonardo_client,
-                        image_result[2],  # image_id
-                        images_dir,
-                        keyframe_num
-                    )
-                else:
-                    print(f"\nGenerating static video for keyframe {keyframe_num}...")
-                    await generate_static_video_from_image(
-                        image_result[0],  # image_path
-                        images_dir,
-                        keyframe_num
-                    )
+            # Wait for all image generations to complete
+            image_results = []
+            for scene_idx, task in image_tasks:
+                result = await task
+                image_results.append((scene_idx, result))
+            
+            # Generate videos in parallel if requested
+            if generate_video:
+                video_tasks = []
+                for scene_idx, image_result in image_results:
+                    if image_result[0]:  # image_path exists
+                        if use_motion:
+                            print(f"\nStarting motion generation for scene {keyframe_num}.{scene_idx}...")
+                            task = generate_motion_for_image(
+                                leonardo_client,
+                                image_result[2],  # image_id
+                                images_dir,
+                                f"{keyframe_num}_{scene_idx}",  # Updated to use scene-specific numbering
+                                image_result[0]  # Pass image_path for fallback
+                            )
+                        else:
+                            print(f"\nGenerating static video for scene {keyframe_num}.{scene_idx}...")
+                            task = generate_static_video_from_image(
+                                image_result[0],  # image_path
+                                images_dir,
+                                f"{keyframe_num}_{scene_idx}"  # Updated to use scene-specific numbering
+                            )
+                        video_tasks.append(task)
+                
+                # Wait for all video generations to complete
+                if video_tasks:
+                    await asyncio.gather(*video_tasks)
         
         # Print feedback
         print(f"Keyframe {keyframe_num} Description:\n{desc}\n")
-        print(f"Keyframe {keyframe_num} Dialog/Narration:\n{dialog.text}\n")
+        for scene_idx, scene in enumerate(scenes, 1):
+            print(f"Keyframe {keyframe_num}.{scene_idx} Dialog/Narration:\n{scene.dialog}\n")
         if audio_data:
-            print(f"Voiceover saved to: {voiceover_path}\n")
+            print(f"Voiceovers saved to: {output_dir}/voiceover_{keyframe_num}_*.mp3\n")
         print("=" * 80)
         
     except Exception as e:
@@ -397,38 +472,57 @@ async def async_main(args: argparse.Namespace) -> None:
                 logger.debug("Writing scene breakdown to file...")
                 # Write scene breakdown
                 await f.write("# Scene Breakdown\n\n")
-                for idx, (desc, dialog, _, _) in enumerate(story, start=1):
+                for idx, (desc, scenes, _, _) in enumerate(story, start=1):
                     await f.write(f"Scene {idx}:\n")
                     await f.write(f"Description: {desc}\n")
-                    await f.write(f"Narration: {dialog.text}\n")
-                    await f.write(f"Spoken by: {dialog.character.name} ({dialog.character.role})\n\n")
+                    for scene_idx, scene in enumerate(scenes, 1):
+                        await f.write(f"Scene {idx}.{scene_idx}:\n")
+                        await f.write(f"Dialog: {scene.dialog}\n")
+                        await f.write(f"Spoken by: {scene.character.name} ({scene.character.role})\n\n")
             logger.info("Wrote full script to %s", script_file)
             print("\nFull script (original and enhanced versions) saved to:", script_file)
             print("=" * 80 + "\n")
         
         # Generate voiceovers if requested
-        voiceovers = None
         if args.voiceover:
-            logger.info("Launching parallel voiceover generation for %d keyframes", len(story))
-            async def generate_voiceover_async(dialog: DialogResponse) -> bytes:
-                """Generate voiceover for a single dialog"""
+            logger.info("Launching parallel voiceover generation for all scenes")
+            async def generate_voiceover_async(scene: KeyframeScene) -> bytes:
+                """Generate voiceover for a single scene"""
                 try:
-                    response = generate_speech_from_text(dialog.text, character=dialog.character.role.value)
+                    response = generate_speech_from_text(scene.dialog, character=scene.character.role.value)
                     return response.read()
                 except Exception as e:
                     logger.error(f"Failed to generate voiceover: {str(e)}")
                     raise
             
-            voiceover_tasks = [generate_voiceover_async(dialog) for _, dialog, _, _ in story]
-            voiceovers = await asyncio.gather(*voiceover_tasks)
+            # Create tasks for all scenes
+            voiceover_tasks = []
+            for desc, scenes, _, _ in story:
+                for scene in scenes:
+                    task = generate_voiceover_async(scene)
+                    voiceover_tasks.append(task)
+            
+            # Wait for all voiceover tasks to complete
+            voiceover_results = await asyncio.gather(*voiceover_tasks)
+            
+            # Group voiceovers back by keyframe
+            grouped_voiceovers = []
+            i = 0
+            for desc, scenes, _, _ in story:
+                num_scenes = len(scenes)
+                grouped_voiceovers.append(voiceover_results[i:i+num_scenes])
+                i += num_scenes
+            voiceovers = grouped_voiceovers
+        else:
+            voiceovers = [None] * len(story)
         
         # Process all keyframes in parallel
         tasks = []
-        for idx, (desc, dialog, _, _) in enumerate(story, start=1):
+        for idx, (desc, scenes, _, _) in enumerate(story, start=1):
             task = process_keyframe(
                 leonardo_client,
                 desc,
-                dialog,
+                scenes,
                 voiceovers[idx-1] if voiceovers else None,
                 visual_style,
                 idx,

@@ -3,7 +3,7 @@ Pydantic models for story generation data structures.
 """
 
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from enum import Enum
 
 class LeonardoStyles(str, Enum):
@@ -53,6 +53,18 @@ class DialogResponse(BaseModel):
 class Keyframe(BaseModel):
     title: str
     description: str
+    characters_in_scene: List[str]  # List of character names present in this keyframe
 
 class KeyframeResponse(BaseModel):
-    keyframes: List[Keyframe] 
+    keyframes: List[Keyframe]
+
+class KeyframeScene(BaseModel):
+    character: Character
+    dialog: str  # The spoken text for this scene
+    title: str
+    description: str
+    characters_in_scene: List[str]
+    leonardo_prompt: Optional[str] = None  # The optimized prompt for Leonardo image generation
+
+class KeyframesWithDialog(BaseModel):
+    scenes: List[KeyframeScene] 
