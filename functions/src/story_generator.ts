@@ -3,6 +3,8 @@ import { task, entrypoint, type LangGraphRunnableConfig, MemorySaver } from '@la
 import * as dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs/promises';
+import { z } from 'zod';
+import { zodResponseFormat } from 'openai/helpers/zod';
 import {
   Role,
   type Character,
@@ -40,25 +42,89 @@ const client = new OpenAI({
 // Helper function to invoke OpenAI chat completion
 async function invokeChatCompletion<T>(
   prompt: string,
-  responseFormat?: { schema: T }
+  responseFormat?: { schema: z.ZodSchema<T> }
 ): Promise<T | string> {
-  const params: OpenAI.Chat.ChatCompletionCreateParams = {
+  const params = {
     model: "gpt-4o-mini",
     messages: [{ role: "user" as const, content: prompt }],
     temperature: 0.7,
   };
 
   if (responseFormat) {
-    const response = await client.chat.completions.create({
+    // Get the schema description or fall back to a generic name
+    const schemaDescription = responseFormat.schema.description || 'structured_response';
+
+    const completion = await client.beta.chat.completions.parse({
       ...params,
-      response_format: { type: "json_object" }
+      response_format: zodResponseFormat(responseFormat.schema, schemaDescription)
     });
-    return JSON.parse(response.choices[0].message.content!) as T;
+
+    const message = completion.choices[0]?.message;
+    if (!message?.parsed) {
+      throw new Error("No parsed response received");
+    }
+    return message.parsed as T;
   } else {
     const response = await client.chat.completions.create(params);
     return response.choices[0].message.content!;
   }
 }
+
+// Define Zod schemas for our types
+const KeyframeResponseSchema = z.object({
+  keyframes: z.array(z.object({
+    title: z.string(),
+    description: z.string(),
+    characters_in_scene: z.array(z.string())
+  }))
+});
+
+const VisualStyleResponseSchema = z.object({
+  style: z.enum([
+    "RENDER_3D", "ACRYLIC", "ANIME_GENERAL", "CREATIVE", "DYNAMIC",
+    "FASHION", "GAME_CONCEPT", "GRAPHIC_DESIGN_3D", "ILLUSTRATION",
+    "NONE", "PORTRAIT", "PORTRAIT_CINEMATIC", "RAY_TRACED",
+    "STOCK_PHOTO", "WATERCOLOR"
+  ])
+});
+
+const CharactersSchema = z.object({
+  characters: z.array(z.object({
+    role: z.enum(["narrator", "child", "elder", "fairy", "hero", "villain", "sage", "sidekick"]),
+    name: z.string(),
+    backstory: z.string(),
+    physical_description: z.string(),
+    personality: z.string()
+  }))
+});
+
+const KeyframesWithDialogSchema = z.object({
+  scenes: z.array(z.object({
+    title: z.string(),
+    description: z.string(),
+    characters_in_scene: z.array(z.string()),
+    character: z.object({
+      role: z.enum(["narrator", "child", "elder", "fairy", "hero", "villain", "sage", "sidekick"]),
+      name: z.string(),
+      backstory: z.string(),
+      physical_description: z.string(),
+      personality: z.string()
+    }),
+    dialog: z.string(),
+    leonardo_prompt: z.string().optional()
+  }))
+});
+
+const DialogResponseSchema = z.object({
+  character: z.object({
+    role: z.enum(["narrator", "child", "elder", "fairy", "hero", "villain", "sage", "sidekick"]),
+    name: z.string(),
+    backstory: z.string(),
+    physical_description: z.string(),
+    personality: z.string()
+  }),
+  text: z.string()
+});
 
 // Task definitions
 export const generateScript = task("generate_script", async (keywords: string[]): Promise<string> => {
@@ -76,7 +142,7 @@ export const extractKeyframes = task("extract_keyframes", async (
     .replace("{script}", script)
     .replace("{num_keyframes}", numKeyframes.toString());
   
-  return await invokeChatCompletion(prompt, { schema: {} as KeyframeResponse }) as KeyframeResponse;
+  return await invokeChatCompletion(prompt, { schema: KeyframeResponseSchema }) as KeyframeResponse;
 });
 
 export const determineVisualStyle = task("determine_visual_style", async (
@@ -84,7 +150,7 @@ export const determineVisualStyle = task("determine_visual_style", async (
 ): Promise<LeonardoStyle> => {
   console.log("Determining visual style for the script");
   const prompt = VISUAL_STYLE_PROMPT.replace("{script}", script);
-  const response = await invokeChatCompletion(prompt, { schema: {} as VisualStyleResponse }) as VisualStyleResponse;
+  const response = await invokeChatCompletion(prompt, { schema: VisualStyleResponseSchema }) as VisualStyleResponse;
   return response.style;
 });
 
@@ -100,7 +166,7 @@ export const extractCharacters = task("extract_characters", async (
 ): Promise<Character[]> => {
   console.log("Extracting characters from script");
   const prompt = CHARACTER_EXTRACTION_PROMPT.replace("{script}", script);
-  const response = await invokeChatCompletion(prompt, { schema: {} as Characters }) as Characters;
+  const response = await invokeChatCompletion(prompt, { schema: CharactersSchema }) as Characters;
   return response.characters;
 });
 
@@ -208,7 +274,7 @@ export const generateKeyframeScenes = task("generate_keyframe_scenes", async (
     .replace("{characters_in_scene}", keyframe.characters_in_scene.join(", "))
     .replace("{character_profiles}", characterProfiles);
 
-  const scenes = await invokeChatCompletion(prompt, { schema: {} as KeyframesWithDialog }) as KeyframesWithDialog;
+  const scenes = await invokeChatCompletion(prompt, { schema: KeyframesWithDialogSchema }) as KeyframesWithDialog;
 
   // Update previously seen characters
   scenes.scenes.forEach(scene => {
@@ -243,7 +309,7 @@ export const extractDialog = task("extract_dialog", async (
       `- ${char.name} (${char.role}): ${char.personality}`
     ).join("\n"));
 
-  const dialog = await invokeChatCompletion(prompt, { schema: {} as DialogResponse }) as DialogResponse;
+  const dialog = await invokeChatCompletion(prompt, { schema: DialogResponseSchema }) as DialogResponse;
   
   // If narrator is chosen, use our narrator character
   if (dialog.character.role === Role.NARRATOR) {

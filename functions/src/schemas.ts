@@ -47,7 +47,7 @@ export const leonardoStylesSchema = z.enum([
   'RAY_TRACED',
   'STOCK_PHOTO',
   'WATERCOLOR',
-]);
+]).describe('leonardo_style');
 
 export const roleSchema = z.enum([
   'narrator',
@@ -58,7 +58,7 @@ export const roleSchema = z.enum([
   'villain',
   'sage',
   'sidekick',
-]);
+]).describe('character_role');
 
 export const characterSchema = z.object({
   role: roleSchema,
@@ -66,30 +66,30 @@ export const characterSchema = z.object({
   backstory: z.string(),
   physical_description: z.string(),
   personality: z.string(),
-});
+}).describe('character');
 
 export const charactersSchema = z.object({
   characters: z.array(characterSchema),
-});
+}).describe('character_list');
 
 export const visualStyleResponseSchema = z.object({
   style: leonardoStylesSchema,
-});
+}).describe('visual_style');
 
 export const dialogResponseSchema = z.object({
   character: characterSchema,
   text: z.string(),
-});
+}).describe('character_dialog');
 
 export const keyframeSchema = z.object({
   title: z.string(),
   description: z.string(),
   characters_in_scene: z.array(z.string()),
-});
+}).describe('keyframe');
 
 export const keyframeResponseSchema = z.object({
   keyframes: z.array(keyframeSchema),
-});
+}).describe('keyframe_list');
 
 export const keyframeSceneSchema = z.object({
   character: characterSchema,
@@ -98,11 +98,11 @@ export const keyframeSceneSchema = z.object({
   description: z.string(),
   characters_in_scene: z.array(z.string()),
   leonardo_prompt: z.string().optional(),
-});
+}).describe('keyframe_scene');
 
 export const keyframesWithDialogSchema = z.object({
   scenes: z.array(keyframeSceneSchema),
-});
+}).describe('keyframe_scene_list');
 
 // Type inference
 export type LeonardoStyle = z.infer<typeof leonardoStylesSchema>;
