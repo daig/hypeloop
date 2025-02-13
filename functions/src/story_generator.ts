@@ -345,6 +345,7 @@ export interface StoryConfig {
   extract_chars?: boolean;
   generate_voiceover?: boolean;
   generate_images?: boolean;
+  generate_motion?: boolean;
   save_script?: boolean;
   num_keyframes?: number;
   output_dir?: string;

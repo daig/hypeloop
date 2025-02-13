@@ -367,6 +367,7 @@ export const leonardoWebhook = onRequest(
         }
 
         const imageDoc = imageQuery.docs[0];
+        const imageData = imageDoc.data();
         
         if (status === 'COMPLETE' && images?.length > 0) {
           // Update the image record with the URL and status
@@ -379,11 +380,45 @@ export const leonardoWebhook = onRequest(
 
           logger.info("Updated image status to complete", {
             imageId: imageDoc.id,
-            storyId: imageDoc.data().storyId,
-            sceneNumber: imageDoc.data().sceneNumber,
+            storyId: imageData.storyId,
+            sceneNumber: imageData.sceneNumber,
             generationId,
             url: images[0].url
           });
+
+          // If motion is enabled, start motion generation
+          if (imageData.motion) {
+            try {
+              const leonardoApi = new LeonardoAPI(leonardoApiKey.value());
+              const motionGenerationId = await leonardoApi.generateMotion(images[0].id);
+
+              if (motionGenerationId) {
+                // Create motion video record
+                await db.collection('motion_videos').add({
+                  imageId: imageDoc.id,
+                  storyId: imageData.storyId,
+                  sceneNumber: imageData.sceneNumber,
+                  generationId: motionGenerationId,
+                  status: 'generating',
+                  created_at: new Date().toISOString()
+                });
+
+                logger.info("Motion generation started", {
+                  imageId: imageDoc.id,
+                  storyId: imageData.storyId,
+                  sceneNumber: imageData.sceneNumber,
+                  motionGenerationId
+                });
+              } else {
+                logger.error("Failed to start motion generation", {
+                  imageId: imageDoc.id,
+                  storyId: imageData.storyId
+                });
+              }
+            } catch (error) {
+              logger.error("Error starting motion generation:", error);
+            }
+          }
         } else {
           // Handle failed generation
           await imageDoc.ref.update({
@@ -394,9 +429,64 @@ export const leonardoWebhook = onRequest(
 
           logger.error("Image generation failed", {
             imageId: imageDoc.id,
-            storyId: imageDoc.data().storyId,
-            sceneNumber: imageDoc.data().sceneNumber,
+            storyId: imageData.storyId,
+            sceneNumber: imageData.sceneNumber,
             generationId,
+            status
+          });
+        }
+      }
+
+      // Handle motion generation completion
+      if (event.type === 'motion_generation.complete') {
+        const generation = event.data.object;
+        const generationId = generation.id;
+        const status = generation.status;
+        const images = generation.images;
+
+        // Find the motion video record by generationId
+        const motionQuery = await db.collection('motion_videos')
+          .where('generationId', '==', generationId)
+          .limit(1)
+          .get();
+
+        if (motionQuery.empty) {
+          logger.warn("No motion video record found with generationId", { generationId });
+          res.status(404).json({ error: 'Motion video record not found' });
+          return;
+        }
+
+        const motionDoc = motionQuery.docs[0];
+        const motionData = motionDoc.data();
+
+        if (status === 'COMPLETE' && images?.length > 0 && images[0].motionMP4URL) {
+          // Update the motion video record with the URL and status
+          await motionDoc.ref.update({
+            status: 'complete',
+            url: images[0].motionMP4URL,
+            updated_at: new Date().toISOString()
+          });
+
+          logger.info("Updated motion video status to complete", {
+            motionId: motionDoc.id,
+            imageId: motionData.imageId,
+            storyId: motionData.storyId,
+            sceneNumber: motionData.sceneNumber,
+            url: images[0].motionMP4URL
+          });
+        } else {
+          // Handle failed generation
+          await motionDoc.ref.update({
+            status: 'error',
+            error: `Generation failed with status: ${status}`,
+            updated_at: new Date().toISOString()
+          });
+
+          logger.error("Motion generation failed", {
+            motionId: motionDoc.id,
+            imageId: motionData.imageId,
+            storyId: motionData.storyId,
+            sceneNumber: motionData.sceneNumber,
             status
           });
         }
@@ -779,10 +869,11 @@ export const generateStoryFunction = onCall({
         extract_chars: data.config?.extract_chars ?? true,
         generate_voiceover: data.config?.generate_voiceover ?? true,
         generate_images: data.config?.generate_images ?? true,
+        generate_motion: data.config?.generate_motion ?? false,
         save_script: data.config?.save_script ?? true,
         num_keyframes: data.config?.num_keyframes ?? 4,
-        output_dir: `/tmp/story_${request.auth.uid}_${Date.now()}`, // Use temp directory
-        thread_id: `${request.auth.uid}_${Date.now()}` // Unique thread ID per request
+        output_dir: `/tmp/story_${request.auth.uid}_${Date.now()}`,
+        thread_id: `${request.auth.uid}_${Date.now()}`
       }
     };
 
@@ -847,7 +938,7 @@ export const generateStoryFunction = onCall({
           try {
             const result = await leonardoApi.generateImageForKeyframe(
               scene.leonardo_prompt,
-              style || 'CREATIVE' as LeonardoStyle  // Use the style from the story tuple or default to CREATIVE
+              style || 'CREATIVE' as LeonardoStyle
             );
 
             if (result) {
@@ -859,13 +950,15 @@ export const generateStoryFunction = onCall({
                 status: 'generating',
                 prompt: scene.leonardo_prompt,
                 generationId,
+                motion: config.configurable.generate_motion, // Add motion flag
                 created_at: new Date().toISOString()
               });
 
               logger.info("Image generation started", {
                 storyId: storyDoc.id,
                 sceneNumber,
-                generationId
+                generationId,
+                motion: config.configurable.generate_motion
               });
             } else {
               logger.error("Failed to generate image", {

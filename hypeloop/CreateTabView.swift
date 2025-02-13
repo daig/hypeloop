@@ -1112,30 +1112,33 @@ struct CreateTabView: View {
             
             print("✅ User authenticated: \(user.uid)")
             
-            // Use the correct function name that matches the exported function name in index.ts
-            let callable = functions.httpsCallable("generateStoryFunction")
+            // Use the correct function name that matches the deployed function
+            let callable = functions.httpsCallable("generatestoryfunction")
             
+            // Wrap the data in a "data" field to match the Cloud Function's expected format
             let data: [String: Any] = [
-                "keywords": ["magical forest", "lost child", "friendly dragon"],
-                "config": [
-                    "extract_chars": true,
-                    "generate_voiceover": true,
-                    "generate_images": isFullBuild,  // Use the toggle state
-                    "save_script": true,
-                    "num_keyframes": isFullBuild ? 4 : 1,  // Only generate multiple keyframes in full build
-                    "output_dir": "output"
+                "data": [
+                    "keywords": ["magical forest", "lost child", "friendly dragon"],
+                    "config": [
+                        "extract_chars": true,
+                        "generate_voiceover": true,
+                        "generate_images": isFullBuild,
+                        "generate_motion": isFullBuild,
+                        "save_script": true,
+                        "num_keyframes": isFullBuild ? 1 : 4,
+                        "output_dir": "output"
+                    ]
                 ]
             ]
             
-            // Try to get an ID token
-            let idToken = try await user.getIDToken()
-            print("✅ Got ID token, length: \(idToken.count)")
-            
+            print("📤 Calling Cloud Function with data:", data)
             let result = try await callable.call(data)
+            print("📥 Received response:", result.data)
+            
             if let resultData = result.data as? [String: Any] {
                 storyGenerationResponse = "Story generation successful: \(resultData)"
                 alertMessage = isFullBuild ? 
-                    "Full story generation completed successfully!" :
+                    "Full story generation with motion started!" :
                     "Story generation test completed successfully!"
                 print("✅ Story generation response: \(resultData)")
             } else {
