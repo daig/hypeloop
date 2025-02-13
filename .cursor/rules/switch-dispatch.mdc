@@ -1,0 +1,5 @@
+---
+description: When decomposing complex typescript functions with many cases
+globs: *.ts
+---
+If a function is large with many cases depending on the input, break the function into a `switch` on the input, dispatching to a seperate function for each case
