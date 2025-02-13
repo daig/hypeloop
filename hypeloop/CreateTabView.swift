@@ -90,6 +90,9 @@ struct CreateTabView: View {
     @State private var testPairs: [(videoURL: URL, audioURL: URL)] = []
     @State private var showingFolderPicker = false
     
+    // Add state variable at the top with other @State variables
+    @State private var numKeyframes: Int = 4
+    
     // Shared instances
     private let functions = Functions.functions(region: "us-central1")
     private let db = Firestore.firestore()
@@ -441,7 +444,18 @@ struct CreateTabView: View {
                 }
                 .tint(.blue)
                 .padding(.horizontal)
-                
+
+                // Add keyframe selector
+                Stepper(value: $numKeyframes, in: 1...10) {
+                    HStack {
+                        Text("Keyframes: \(numKeyframes)")
+                            .foregroundColor(.white)
+                        Text("(\(numKeyframes * 2) scenes)")
+                            .foregroundColor(.gray)
+                    }
+                }
+                .padding(.horizontal)
+
                 Button(action: { Task { await testStoryGeneration() } }) {
                     HStack {
                         if isGeneratingStory {
@@ -1123,7 +1137,7 @@ struct CreateTabView: View {
                     "generate_images": isFullBuild,
                     "generate_motion": isFullBuild,  // Keep motion generation tied to full build
                     "save_script": true,
-                    "num_keyframes": isFullBuild ? 1 : 4,  // 1 keyframe for full build, 4 for test
+                    "num_keyframes": numKeyframes,  // Use the selected number of keyframes
                     "output_dir": "output"
                 ]
             ]
