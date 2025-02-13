@@ -195,37 +195,49 @@ export const muxWebhook = onRequest(
             const isAudio = event.data.tracks?.some((track: any) => track.type === 'audio');
 
             if (isAudio) {
-                // Find stories that contain this Mux upload ID
+                // Get all stories
                 const storiesRef = db.collection('stories');
-                const storyQuery = await storiesRef.where('keyframes', 'array-contains', {
-                    'scenes.audio.muxUploadId': uploadId
-                }).get();
+                const storiesSnapshot = await storiesRef.get();
+                
+                // Track if we found and updated any matching stories
+                let updatedCount = 0;
 
-                if (!storyQuery.empty) {
-                    for (const doc of storyQuery.docs) {
-                        const storyData = doc.data();
-                        const updatedKeyframes = storyData.keyframes.map((keyframe: any) => ({
+                // Process each story
+                for (const doc of storiesSnapshot.docs) {
+                    const storyData = doc.data();
+                    let wasUpdated = false;
+
+                    // Update keyframes that contain the matching uploadId
+                    const updatedKeyframes = storyData.keyframes.map((keyframe: any) => {
+                        const updatedScenes = keyframe.scenes.map((scene: any) => {
+                            if (scene.audio?.muxUploadId === uploadId) {
+                                wasUpdated = true;
+                                return {
+                                    ...scene,
+                                    audio: {
+                                        ...scene.audio,
+                                        status: 'ready',
+                                        playbackId,
+                                        assetId
+                                    }
+                                };
+                            }
+                            return scene;
+                        });
+
+                        return {
                             ...keyframe,
-                            scenes: keyframe.scenes.map((scene: any) => {
-                                if (scene.audio?.muxUploadId === uploadId) {
-                                    return {
-                                        ...scene,
-                                        audio: {
-                                            ...scene.audio,
-                                            status: 'ready',
-                                            playbackId,
-                                            assetId
-                                        }
-                                    };
-                                }
-                                return scene;
-                            })
-                        }));
+                            scenes: updatedScenes
+                        };
+                    });
 
+                    // Only update the document if we found and updated a matching scene
+                    if (wasUpdated) {
                         await doc.ref.update({
                             keyframes: updatedKeyframes,
                             updated_at: new Date().toISOString()
                         });
+                        updatedCount++;
 
                         logger.info("Updated audio status to ready", {
                             storyId: doc.id,
@@ -234,6 +246,10 @@ export const muxWebhook = onRequest(
                             assetId
                         });
                     }
+                }
+
+                if (updatedCount === 0) {
+                    logger.warn("No stories found with matching audio uploadId", { uploadId });
                 }
             } else {
                 // Handle video assets (existing code)
@@ -270,36 +286,48 @@ export const muxWebhook = onRequest(
             const isAudio = event.data.tracks?.some((track: any) => track.type === 'audio');
 
             if (isAudio) {
-                // Find stories that contain this Mux upload ID
+                // Get all stories
                 const storiesRef = db.collection('stories');
-                const storyQuery = await storiesRef.where('keyframes', 'array-contains', {
-                    'scenes.audio.muxUploadId': uploadId
-                }).get();
+                const storiesSnapshot = await storiesRef.get();
+                
+                // Track if we found and updated any matching stories
+                let updatedCount = 0;
 
-                if (!storyQuery.empty) {
-                    for (const doc of storyQuery.docs) {
-                        const storyData = doc.data();
-                        const updatedKeyframes = storyData.keyframes.map((keyframe: any) => ({
+                // Process each story
+                for (const doc of storiesSnapshot.docs) {
+                    const storyData = doc.data();
+                    let wasUpdated = false;
+
+                    // Update keyframes that contain the matching uploadId
+                    const updatedKeyframes = storyData.keyframes.map((keyframe: any) => {
+                        const updatedScenes = keyframe.scenes.map((scene: any) => {
+                            if (scene.audio?.muxUploadId === uploadId) {
+                                wasUpdated = true;
+                                return {
+                                    ...scene,
+                                    audio: {
+                                        ...scene.audio,
+                                        status: 'error',
+                                        error
+                                    }
+                                };
+                            }
+                            return scene;
+                        });
+
+                        return {
                             ...keyframe,
-                            scenes: keyframe.scenes.map((scene: any) => {
-                                if (scene.audio?.muxUploadId === uploadId) {
-                                    return {
-                                        ...scene,
-                                        audio: {
-                                            ...scene.audio,
-                                            status: 'error',
-                                            error
-                                        }
-                                    };
-                                }
-                                return scene;
-                            })
-                        }));
+                            scenes: updatedScenes
+                        };
+                    });
 
+                    // Only update the document if we found and updated a matching scene
+                    if (wasUpdated) {
                         await doc.ref.update({
                             keyframes: updatedKeyframes,
                             updated_at: new Date().toISOString()
                         });
+                        updatedCount++;
 
                         logger.error("Audio processing failed", {
                             storyId: doc.id,
@@ -307,6 +335,10 @@ export const muxWebhook = onRequest(
                             error
                         });
                     }
+                }
+
+                if (updatedCount === 0) {
+                    logger.warn("No stories found with matching audio uploadId", { uploadId });
                 }
             } else {
                 // Handle video errors (existing code)

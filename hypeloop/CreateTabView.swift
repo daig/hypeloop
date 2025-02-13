@@ -56,6 +56,7 @@ struct CreateTabView: View {
     // Story generation test states
     @State private var isGeneratingStory = false
     @State private var storyGenerationResponse: String = ""
+    @State private var isFullBuild = false  // Add toggle state
     
     // New state variables for file importing and merging
     @State private var showingFilePicker = false
@@ -432,30 +433,39 @@ struct CreateTabView: View {
                 .cornerRadius(12)
             }
             
-            // Test Story Generation Button
-            Button(action: { Task { await testStoryGeneration() } }) {
-                HStack {
-                    if isGeneratingStory {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    } else {
-                        Image(systemName: "wand.and.stars")
-                        Text("Test Story Generation")
-                    }
+            // Test Story Generation Section
+            VStack(spacing: 12) {
+                Toggle(isOn: $isFullBuild) {
+                    Text("Full Build")
+                        .foregroundColor(.white)
                 }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(
-                    LinearGradient(
-                        gradient: Gradient(colors: [.purple, .blue]),
-                        startPoint: .leading,
-                        endPoint: .trailing
+                .tint(.blue)
+                .padding(.horizontal)
+                
+                Button(action: { Task { await testStoryGeneration() } }) {
+                    HStack {
+                        if isGeneratingStory {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        } else {
+                            Image(systemName: "wand.and.stars")
+                            Text(isFullBuild ? "Generate Full Story" : "Test Story Generation")
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [.purple, .blue]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
                     )
-                )
-                .foregroundColor(.white)
-                .cornerRadius(12)
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
+                .disabled(isGeneratingStory)
             }
-            .disabled(isGeneratingStory)
             
             // Merge files section
             VStack(spacing: 12) {
@@ -1110,9 +1120,9 @@ struct CreateTabView: View {
                 "config": [
                     "extract_chars": true,
                     "generate_voiceover": true,
-                    "generate_images": false,
+                    "generate_images": isFullBuild,  // Use the toggle state
                     "save_script": true,
-                    "num_keyframes": 4,
+                    "num_keyframes": isFullBuild ? 4 : 1,  // Only generate multiple keyframes in full build
                     "output_dir": "output"
                 ]
             ]
@@ -1124,7 +1134,9 @@ struct CreateTabView: View {
             let result = try await callable.call(data)
             if let resultData = result.data as? [String: Any] {
                 storyGenerationResponse = "Story generation successful: \(resultData)"
-                alertMessage = "Story generation completed successfully!"
+                alertMessage = isFullBuild ? 
+                    "Full story generation completed successfully!" :
+                    "Story generation test completed successfully!"
                 print("✅ Story generation response: \(resultData)")
             } else {
                 alertMessage = "Story generation completed but response format was unexpected"
