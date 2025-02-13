@@ -20,8 +20,12 @@ import type { StoryInput, StoryConfig } from './story_generator.js';
 import {
   muxTokenId,
   muxTokenSecret,
-  muxWebhookSecret
+  muxWebhookSecret,
+  leonardoApiKey,
+  leonardoWebhookSecret
 } from './config.js';
+import { LeonardoAPI } from './leonardo_api.js';
+import type { LeonardoStyle } from './schemas.js';
 
 // Initialize Firebase Admin
 initializeApp();
@@ -121,7 +125,7 @@ export const getVideoUploadUrl = onCall({
 export const muxWebhook = onRequest(
     {
         cors: false,
-        maxInstances: 1,
+        maxInstances: 100,
         invoker: 'public'
     },
     async (req, res) => {
@@ -195,62 +199,34 @@ export const muxWebhook = onRequest(
             const isAudio = event.data.tracks?.some((track: any) => track.type === 'audio');
 
             if (isAudio) {
-                // Get all stories
-                const storiesRef = db.collection('stories');
-                const storiesSnapshot = await storiesRef.get();
-                
-                // Track if we found and updated any matching stories
-                let updatedCount = 0;
+                // Find the audio record by uploadId
+                const audioQuery = await db.collection('audio')
+                    .where('uploadId', '==', uploadId)
+                    .limit(1)
+                    .get();
 
-                // Process each story
-                for (const doc of storiesSnapshot.docs) {
-                    const storyData = doc.data();
-                    let wasUpdated = false;
-
-                    // Update keyframes that contain the matching uploadId
-                    const updatedKeyframes = storyData.keyframes.map((keyframe: any) => {
-                        const updatedScenes = keyframe.scenes.map((scene: any) => {
-                            if (scene.audio?.muxUploadId === uploadId) {
-                                wasUpdated = true;
-                                return {
-                                    ...scene,
-                                    audio: {
-                                        ...scene.audio,
-                                        status: 'ready',
-                                        playbackId,
-                                        assetId
-                                    }
-                                };
-                            }
-                            return scene;
-                        });
-
-                        return {
-                            ...keyframe,
-                            scenes: updatedScenes
-                        };
-                    });
-
-                    // Only update the document if we found and updated a matching scene
-                    if (wasUpdated) {
-                        await doc.ref.update({
-                            keyframes: updatedKeyframes,
-                            updated_at: new Date().toISOString()
-                        });
-                        updatedCount++;
-
-                        logger.info("Updated audio status to ready", {
-                            storyId: doc.id,
-                            uploadId,
-                            playbackId,
-                            assetId
-                        });
-                    }
+                if (audioQuery.empty) {
+                    logger.warn("No audio record found with uploadId", { uploadId });
+                    res.status(404).json({ error: 'Audio record not found' });
+                    return;
                 }
 
-                if (updatedCount === 0) {
-                    logger.warn("No stories found with matching audio uploadId", { uploadId });
-                }
+                const audioDoc = audioQuery.docs[0];
+                await audioDoc.ref.update({
+                    status: 'ready',
+                    playbackId,
+                    assetId,
+                    updated_at: new Date().toISOString()
+                });
+
+                logger.info("Updated audio status to ready", {
+                    audioId: audioDoc.id,
+                    storyId: audioDoc.data().storyId,
+                    sceneNumber: audioDoc.data().sceneNumber,
+                    uploadId,
+                    playbackId,
+                    assetId
+                });
             } else {
                 // Handle video assets (existing code)
                 const videoRef = db.collection('videos').doc(uploadId);
@@ -286,60 +262,32 @@ export const muxWebhook = onRequest(
             const isAudio = event.data.tracks?.some((track: any) => track.type === 'audio');
 
             if (isAudio) {
-                // Get all stories
-                const storiesRef = db.collection('stories');
-                const storiesSnapshot = await storiesRef.get();
-                
-                // Track if we found and updated any matching stories
-                let updatedCount = 0;
+                // Find the audio record by uploadId
+                const audioQuery = await db.collection('audio')
+                    .where('uploadId', '==', uploadId)
+                    .limit(1)
+                    .get();
 
-                // Process each story
-                for (const doc of storiesSnapshot.docs) {
-                    const storyData = doc.data();
-                    let wasUpdated = false;
-
-                    // Update keyframes that contain the matching uploadId
-                    const updatedKeyframes = storyData.keyframes.map((keyframe: any) => {
-                        const updatedScenes = keyframe.scenes.map((scene: any) => {
-                            if (scene.audio?.muxUploadId === uploadId) {
-                                wasUpdated = true;
-                                return {
-                                    ...scene,
-                                    audio: {
-                                        ...scene.audio,
-                                        status: 'error',
-                                        error
-                                    }
-                                };
-                            }
-                            return scene;
-                        });
-
-                        return {
-                            ...keyframe,
-                            scenes: updatedScenes
-                        };
-                    });
-
-                    // Only update the document if we found and updated a matching scene
-                    if (wasUpdated) {
-                        await doc.ref.update({
-                            keyframes: updatedKeyframes,
-                            updated_at: new Date().toISOString()
-                        });
-                        updatedCount++;
-
-                        logger.error("Audio processing failed", {
-                            storyId: doc.id,
-                            uploadId,
-                            error
-                        });
-                    }
+                if (audioQuery.empty) {
+                    logger.warn("No audio record found with uploadId", { uploadId });
+                    res.status(404).json({ error: 'Audio record not found' });
+                    return;
                 }
 
-                if (updatedCount === 0) {
-                    logger.warn("No stories found with matching audio uploadId", { uploadId });
-                }
+                const audioDoc = audioQuery.docs[0];
+                await audioDoc.ref.update({
+                    status: 'error',
+                    error,
+                    updated_at: new Date().toISOString()
+                });
+
+                logger.error("Audio processing failed", {
+                    audioId: audioDoc.id,
+                    storyId: audioDoc.data().storyId,
+                    sceneNumber: audioDoc.data().sceneNumber,
+                    uploadId,
+                    error
+                });
             } else {
                 // Handle video errors (existing code)
                 const videosRef = db.collection('videos');
@@ -368,6 +316,100 @@ export const muxWebhook = onRequest(
         res.status(500).json({ error: 'Webhook processing failed' });
     }
 });
+
+// Webhook endpoint to handle Leonardo.ai notifications
+export const leonardoWebhook = onRequest(
+  {
+    cors: false,
+    maxInstances: 100,
+    invoker: 'public'
+  },
+  async (req, res) => {
+    try {
+      // Verify webhook authorization
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        logger.error("No Leonardo authorization found in webhook request");
+        res.status(401).json({ error: 'No authorization provided' });
+        return;
+      }
+
+      const webhookApiKey = authHeader.split(' ')[1];
+      if (webhookApiKey !== leonardoWebhookSecret.value()) {
+        logger.error("Invalid Leonardo webhook API key");
+        res.status(401).json({ error: 'Invalid authorization' });
+        return;
+      }
+
+      const event = req.body;
+      logger.info("Received Leonardo webhook", { 
+        type: event.type,
+        generationId: event.data?.object?.id
+      });
+
+      // Handle image generation completion
+      if (event.type === 'image_generation.complete') {
+        const generation = event.data.object;
+        const generationId = generation.id;
+        const status = generation.status;
+        const images = generation.images;
+
+        // Find the image record by generationId
+        const imageQuery = await db.collection('images')
+          .where('generationId', '==', generationId)
+          .limit(1)
+          .get();
+
+        if (imageQuery.empty) {
+          logger.warn("No image record found with generationId", { generationId });
+          res.status(404).json({ error: 'Image record not found' });
+          return;
+        }
+
+        const imageDoc = imageQuery.docs[0];
+        
+        if (status === 'COMPLETE' && images?.length > 0) {
+          // Update the image record with the URL and status
+          await imageDoc.ref.update({
+            status: 'complete',
+            url: images[0].url,
+            nsfw: images[0].nsfw,
+            updated_at: new Date().toISOString()
+          });
+
+          logger.info("Updated image status to complete", {
+            imageId: imageDoc.id,
+            storyId: imageDoc.data().storyId,
+            sceneNumber: imageDoc.data().sceneNumber,
+            generationId,
+            url: images[0].url
+          });
+        } else {
+          // Handle failed generation
+          await imageDoc.ref.update({
+            status: 'error',
+            error: `Generation failed with status: ${status}`,
+            updated_at: new Date().toISOString()
+          });
+
+          logger.error("Image generation failed", {
+            imageId: imageDoc.id,
+            storyId: imageDoc.data().storyId,
+            sceneNumber: imageDoc.data().sceneNumber,
+            generationId,
+            status
+          });
+        }
+      }
+
+      res.status(200).json({ message: 'Webhook processed' });
+      return;
+    } catch (error) {
+      logger.error("Error processing Leonardo webhook:", error);
+      res.status(500).json({ error: 'Webhook processing failed' });
+    }
+  }
+);
 
 /**
  * A simple linear congruential generator seeded with a number.
@@ -757,36 +799,89 @@ export const generateStoryFunction = onCall({
       throw new HttpsError("internal", "Story generation failed");
     }
 
-    const [story, characters, scripts] = result;
+    const [story, , scripts] = result;  // Get the scripts tuple from the result
+    const script = scripts?.[0] ?? '';  // Get the original script or empty string if null
+
+    // Calculate total number of scenes
+    const sceneCount = story.reduce((total, [_, scenes]) => total + scenes.length, 0);
 
     // Save story data to Firestore
     const storyDoc = await db.collection('stories').add({
       userId: request.auth.uid,
       keywords: data.keywords,
-      characters: characters || [],
-      scripts: scripts || [],
-      keyframes: story.map(([desc, scenes, style]) => ({
-        description: desc,
-        scenes: scenes.map(scene => ({
-          ...scene,
-          character: {
-            name: scene.character.name,
-            role: scene.character.role,
-            backstory: scene.character.backstory,
-            physical_description: scene.character.physical_description,
-            personality: scene.character.personality
-          },
-          audio: scene.audio ? {
-            muxUploadId: scene.audio.muxUploadId,
-            muxUrl: scene.audio.muxUrl,
-            status: 'processing' // Will be updated to 'ready' by the Mux webhook
-          } : undefined
-        })),
-        visual_style: style
-      })),
+      sceneCount,
+      script,  // Store the original script string
       created_at: new Date().toISOString(),
       status: 'completed'
     });
+
+    // Initialize Leonardo API if image generation is enabled
+    let leonardoApi: LeonardoAPI | null = null;
+    if (config.configurable.generate_images) {
+      leonardoApi = new LeonardoAPI(leonardoApiKey.value());
+    }
+
+    // Create audio records
+    const audioPromises = story.flatMap(([_, scenes], keyframeIndex) => 
+      scenes.map(async (scene, sceneIndex) => {
+        if (scene.audio) {
+          const sceneNumber = (keyframeIndex * 2) + sceneIndex;
+          await db.collection('audio').add({
+            storyId: storyDoc.id,
+            sceneNumber,
+            uploadId: scene.audio.muxUploadId,
+            status: 'processing',
+            created_at: new Date().toISOString()
+          });
+        }
+      })
+    );
+
+    // Create image records and generate images if enabled
+    const imagePromises = story.flatMap(([_, scenes, style], keyframeIndex) => 
+      scenes.map(async (scene, sceneIndex) => {
+        // Only proceed if we have a prompt and image generation is enabled
+        if (scene.leonardo_prompt && leonardoApi && config.configurable.generate_images) {
+          const sceneNumber = (keyframeIndex * 2) + sceneIndex;
+          
+          try {
+            const result = await leonardoApi.generateImageForKeyframe(
+              scene.leonardo_prompt,
+              style || 'CREATIVE' as LeonardoStyle  // Use the style from the story tuple or default to CREATIVE
+            );
+
+            if (result) {
+              const [generationId] = result;
+              // Create the image record only after successful generation start
+              await db.collection('images').add({
+                storyId: storyDoc.id,
+                sceneNumber,
+                status: 'generating',
+                prompt: scene.leonardo_prompt,
+                generationId,
+                created_at: new Date().toISOString()
+              });
+
+              logger.info("Image generation started", {
+                storyId: storyDoc.id,
+                sceneNumber,
+                generationId
+              });
+            } else {
+              logger.error("Failed to generate image", {
+                storyId: storyDoc.id,
+                sceneNumber
+              });
+            }
+          } catch (error) {
+            logger.error("Error generating image:", error);
+          }
+        }
+      })
+    );
+
+    // Wait for all records to be created
+    await Promise.all([...audioPromises, ...imagePromises]);
 
     logger.info("Story generation completed", {
       uid: request.auth.uid,
@@ -795,23 +890,7 @@ export const generateStoryFunction = onCall({
 
     // Return the story data and document ID
     return {
-      storyId: storyDoc.id,
-      story: story.map(([desc, scenes, style]) => ({
-        description: desc,
-        scenes: scenes.map(scene => ({
-          ...scene,
-          character: {
-            name: scene.character.name,
-            role: scene.character.role,
-            backstory: scene.character.backstory,
-            physical_description: scene.character.physical_description,
-            personality: scene.character.personality
-          }
-        })),
-        visual_style: style
-      })),
-      characters,
-      scripts
+      storyId: storyDoc.id
     };
 
   } catch (error) {

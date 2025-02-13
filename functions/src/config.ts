@@ -10,4 +10,5 @@ export const muxWebhookSecret = defineString("MUX_WEBHOOK_SECRET");
 
 // Leonardo configuration
 export const leonardoApiKey = defineString("LEONARDO_API_KEY");
-export const leonardoUserId = defineString("LEONARDO_USER_ID"); 
+export const leonardoUserId = defineString("LEONARDO_USER_ID");
+export const leonardoWebhookSecret = defineString("LEONARDO_WEBHOOK_SECRET"); 
