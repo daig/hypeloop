@@ -202,21 +202,23 @@ Available Characters:
 CRITICAL LENGTH CONSTRAINTS:
 - Each scene's dialog MUST be exactly 10-15 words long
 - Each scene MUST be readable in 5 seconds or less
-- Longer scenes will be rejected by the text-to-speech system
+- Empty dialog or dialog outside this range will be rejected
 - Count your words carefully before submitting
 
 Guidelines:
 1. For the Narration Scene:
-   - Use the narrator's voice to introduce any new characters and set the stage
+   - The narrator MUST speak a line of dialog describing the scene
    - Keep descriptions extremely concise but vivid
    - Focus on the most important visual elements
-   - MAXIMUM 15 WORDS - count them!
+   - MUST be 10-15 words - count them!
+   - Example: "In the moonlit garden, Sarah discovers an ancient stone glowing with magic."
 
 2. For the Character Dialog Scene:
    - Choose the most appropriate character to speak based on the action
    - Keep dialog natural but extremely concise
    - Focus on the main action or emotional moment
-   - MAXIMUM 15 WORDS - count them!
+   - MUST be 10-15 words - count them!
+   - Example: "The crystal pulses with power as I touch its surface."
 
 Both scenes should:
 - Take place in the exact same setting and moment in time
@@ -226,15 +228,30 @@ Both scenes should:
 - Maintain consistent character personalities
 - Support the overall story progression
 
-Example Format (note the word count):
-1. Narration (12 words):
-   "In the moonlit garden, Sarah discovers an ancient stone glowing with magic."
+You MUST return exactly TWO scenes with the following format:
+{
+  "scenes": [
+    {
+      "character": {
+        "role": "narrator",
+        "name": "Narrator",
+        "backstory": "",
+        "physical_description": "",
+        "personality": ""
+      },
+      "dialog": "Your 10-15 word narration here",
+      "title": "{title}",
+      "description": "{description}",
+      "characters_in_scene": [{characters_in_scene}]
+    },
+    {
+      "character": (choose from available characters),
+      "dialog": "Your 10-15 word character dialog here",
+      "title": "{title}",
+      "description": "{description}",
+      "characters_in_scene": [{characters_in_scene}]
+    }
+  ]
+}
 
-2. Dialog (11 words):
-   "The crystal pulses with power as I touch its surface."
-
-Return exactly TWO scenes:
-1. A narration scene using the narrator's voice to introduce new characters and set the stage
-2. A character dialog scene featuring the most appropriate character for the main action
-
-DO NOT INCLUDE THE WORD COUNT IN YOUR FINAL RESPONSE.`;
+DO NOT include word counts or any other text in your response.`;

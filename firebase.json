@@ -12,7 +12,8 @@
       ],
       "predeploy": [
         "npm --prefix \"$RESOURCE_DIR\" run build"
-      ]
+      ],
+      "invoker": ["public", "private", "service-account"]
     }
   ],
   "firestore": {

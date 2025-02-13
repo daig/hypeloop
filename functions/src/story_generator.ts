@@ -283,7 +283,48 @@ export const generateKeyframeScenes = task("generate_keyframe_scenes", async (
     .replace("{characters_in_scene}", keyframe.characters_in_scene.join(", "))
     .replace("{character_profiles}", characterProfiles);
 
-  const scenes = await invokeChatCompletion(prompt, { schema: KeyframesWithDialogSchema }) as KeyframesWithDialog;
+  let scenes = await invokeChatCompletion(prompt, { schema: KeyframesWithDialogSchema }) as KeyframesWithDialog;
+  let retries = 0;
+  const maxRetries = 3;
+
+  while (retries < maxRetries) {
+    // Validate dialog length for each scene
+    const invalidScenes = scenes.scenes.filter(scene => {
+      const wordCount = scene.dialog.trim().split(/\s+/).length;
+      // Allow 5-20 words instead of strictly 10-15
+      return wordCount < 5 || wordCount > 20 || !scene.dialog.trim();
+    });
+
+    if (invalidScenes.length === 0) {
+      // All scenes are valid
+      break;
+    }
+
+    console.log(`\nRetry ${retries + 1}: Some scenes had invalid dialog length. Current scenes:`);
+    scenes.scenes.forEach((scene, idx) => {
+      const wordCount = scene.dialog.trim().split(/\s+/).length;
+      console.log(`Scene ${idx + 1} (${wordCount} words):`);
+      console.log(`Character: ${scene.character.name} (${scene.character.role})`);
+      console.log(`Dialog: "${scene.dialog}"`);
+      if (wordCount < 5 || wordCount > 20 || !scene.dialog.trim()) {
+        console.log("⚠️ Invalid: " + (
+          !scene.dialog.trim() ? "Empty dialog" :
+          wordCount < 5 ? "Too short" :
+          "Too long"
+        ));
+      }
+      console.log("---");
+    });
+
+    retries++;
+
+    if (retries === maxRetries) {
+      throw new Error("Failed to generate valid scenes after maximum retries. Dialog length constraints not met.");
+    }
+
+    // Try generating again
+    scenes = await invokeChatCompletion(prompt, { schema: KeyframesWithDialogSchema }) as KeyframesWithDialog;
+  }
 
   // Update previously seen characters
   scenes.scenes.forEach(scene => {

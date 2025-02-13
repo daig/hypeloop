@@ -32,8 +32,7 @@ export async function uploadAudioToMux(
   // Create a direct upload URL
   const upload = await muxClient.video.uploads.create({
     new_asset_settings: {
-      playback_policy: ["public"],
-      mp4_support: "standard"
+      playback_policy: ["public"]
     },
     cors_origin: "*", // TODO: Update with your domain in production
     timeout: 3600 // 1 hour to complete the upload

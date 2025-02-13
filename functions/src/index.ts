@@ -670,6 +670,7 @@ export const generateStoryFunction = onCall({
   memory: "2GiB", // Story generation can be memory intensive
   region: "us-central1",
   enforceAppCheck: false, // Enable in production
+  invoker: "public"
 }, async (request) => {
   try {
     // Ensure user is authenticated

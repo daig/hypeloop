@@ -53,6 +53,10 @@ struct CreateTabView: View {
     @State private var isLoadingVideo = false
     @FocusState private var isDescriptionFocused: Bool
     
+    // Story generation test states
+    @State private var isGeneratingStory = false
+    @State private var storyGenerationResponse: String = ""
+    
     // New state variables for file importing and merging
     @State private var showingFilePicker = false
     @State private var sandboxVideoURL: URL? = nil
@@ -427,6 +431,31 @@ struct CreateTabView: View {
                 .foregroundColor(.white)
                 .cornerRadius(12)
             }
+            
+            // Test Story Generation Button
+            Button(action: { Task { await testStoryGeneration() } }) {
+                HStack {
+                    if isGeneratingStory {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    } else {
+                        Image(systemName: "wand.and.stars")
+                        Text("Test Story Generation")
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(
+                    LinearGradient(
+                        gradient: Gradient(colors: [.purple, .blue]),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .foregroundColor(.white)
+                .cornerRadius(12)
+            }
+            .disabled(isGeneratingStory)
             
             // Merge files section
             VStack(spacing: 12) {
@@ -1055,6 +1084,63 @@ struct CreateTabView: View {
             alertMessage = "Error selecting folder: \(error.localizedDescription)"
             showAlert = true
         }
+    }
+    
+    // Add story generation test function
+    private func testStoryGeneration() async {
+        isGeneratingStory = true
+        
+        do {
+            // Check if user is authenticated
+            guard let user = Auth.auth().currentUser else {
+                print("❌ User not authenticated")
+                alertMessage = "Please sign in to generate stories"
+                isGeneratingStory = false
+                showAlert = true
+                return
+            }
+            
+            print("✅ User authenticated: \(user.uid)")
+            
+            // Use the correct function name that matches the exported function name in index.ts
+            let callable = functions.httpsCallable("generateStoryFunction")
+            
+            let data: [String: Any] = [
+                "keywords": ["magical forest", "lost child", "friendly dragon"],
+                "config": [
+                    "extract_chars": true,
+                    "generate_voiceover": true,
+                    "generate_images": false,
+                    "save_script": true,
+                    "num_keyframes": 4,
+                    "output_dir": "output"
+                ]
+            ]
+            
+            // Try to get an ID token
+            let idToken = try await user.getIDToken()
+            print("✅ Got ID token, length: \(idToken.count)")
+            
+            let result = try await callable.call(data)
+            if let resultData = result.data as? [String: Any] {
+                storyGenerationResponse = "Story generation successful: \(resultData)"
+                alertMessage = "Story generation completed successfully!"
+                print("✅ Story generation response: \(resultData)")
+            } else {
+                alertMessage = "Story generation completed but response format was unexpected"
+                print("⚠️ Unexpected response format: \(result.data)")
+            }
+        } catch {
+            print("❌ Story generation error: \(error)")
+            if let authError = error as? AuthErrorCode {
+                alertMessage = "Authentication error: \(authError.localizedDescription)"
+            } else {
+                alertMessage = "Story generation failed: \(error.localizedDescription)"
+            }
+        }
+        
+        isGeneratingStory = false
+        showAlert = true
     }
 }
 
