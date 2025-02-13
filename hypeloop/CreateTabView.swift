@@ -1113,21 +1113,18 @@ struct CreateTabView: View {
             print("✅ User authenticated: \(user.uid)")
             
             // Use the correct function name that matches the deployed function
-            let callable = functions.httpsCallable("generatestoryfunction")
+            let callable = functions.httpsCallable("generateStoryFunction")
             
-            // Wrap the data in a "data" field to match the Cloud Function's expected format
             let data: [String: Any] = [
-                "data": [
-                    "keywords": ["magical forest", "lost child", "friendly dragon"],
-                    "config": [
-                        "extract_chars": true,
-                        "generate_voiceover": true,
-                        "generate_images": isFullBuild,
-                        "generate_motion": isFullBuild,
-                        "save_script": true,
-                        "num_keyframes": isFullBuild ? 1 : 4,
-                        "output_dir": "output"
-                    ]
+                "keywords": ["magical forest", "lost child", "friendly dragon"],
+                "config": [
+                    "extract_chars": true,
+                    "generate_voiceover": true,
+                    "generate_images": isFullBuild,
+                    "generate_motion": isFullBuild,  // Keep motion generation tied to full build
+                    "save_script": true,
+                    "num_keyframes": isFullBuild ? 1 : 4,  // 1 keyframe for full build, 4 for test
+                    "output_dir": "output"
                 ]
             ]
             
