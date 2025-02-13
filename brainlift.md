@@ -30,6 +30,9 @@ Hypeloop is a video-centric mobile application that leverages **direct Mux uploa
 - **“Caught Up” Screen**  
   Once you’ve exhausted unseen videos, a special screen indicates you’re “all caught up” and offers an easy refresh button.
 
+- **AI-Driven Story Generation & TTS**  
+  A new pipeline in Cloud Functions uses GPT-based large language models to generate short stories from user-supplied keywords. It extracts keyframes, determines a visual style, and optionally creates voiceovers with OpenAI TTS. Images can be generated via Leonardo’s API for consistent styling, expanding Hypeloop beyond simple video sharing into a story-driven, AI-powered media experience.
+
 ### Scope
 - **In Scope**:
   - Integration with Mux for video streaming and hosting  
@@ -40,6 +43,7 @@ Hypeloop is a video-centric mobile application that leverages **direct Mux uploa
   - Bloom filter approach for tracking “seen” videos  
   - Generative user icons (animated GIFs) via a Cloud Function  
   - Local offline downloads of saved videos  
+  - **AI-based story generation pipeline (GPT + TTS) and image rendering with Leonardo**
 
 - **Out of Scope**:
   - Advanced video editing or FX  
@@ -67,6 +71,8 @@ Hypeloop is a video-centric mobile application that leverages **direct Mux uploa
   - [Firebase Authentication Docs](https://firebase.google.com/docs/auth)  [oai_citation_attribution:3‡mux.com](https://www.mux.com/docs/core/make-api-requests)  
   - [Firebase Functions Docs](https://firebase.google.com/docs/functions)  [oai_citation_attribution:4‡firebase.google.com](https://firebase.google.com/docs/functions)
 
+> With recent expansions, these Functions also orchestrate an **AI-driven story generation workflow** (GPT-based scripting, keyframe extraction, style selection) as well as text-to-speech generation and integration with Leonardo for image or motion creation.
+
 ### SwiftUI & Gesture Design
 - **Who**: iOS UX designers specializing in SwiftUI  
 - **Focus**: Creating a fluid, multi-direction **swipe** interface and visually appealing layouts for short videos  
@@ -91,6 +97,8 @@ Hypeloop is a video-centric mobile application that leverages **direct Mux uploa
   - [Node Canvas GitHub](https://github.com/Automattic/node-canvas)  [oai_citation_attribution:9‡mux.com](https://www.mux.com/docs/core/make-api-requests)  
   - [gifencoder GitHub](https://github.com/eugeneware/gifencoder)  [oai_citation_attribution:10‡mux.com](https://www.mux.com/docs/core/make-api-requests)
 
+> In addition to the GIF-based profile icons, **Leonardo API** is now used to generate high-quality still images (and optional motion) for story scenes. OpenAI TTS is used for voiceover generation, extending the “generative” concept to both visuals and audio.  
+
 ---
 
 ## 3. SpikyPOVs
@@ -103,7 +111,8 @@ Hypeloop is a video-centric mobile application that leverages **direct Mux uploa
 - **Custom generative user icons** keep the app visually unique while offloading icon creation to a Node.js function.  
 - **Adaptive streaming via HLS** suits varying network speeds, improving playback experiences.  
 - **Seamless SwiftUI** ensures an easily maintainable, modern codebase with a reactive data flow.  
-- **Local caching & offline** features (e.g., downloaded videos, ephemeral local storage) bolster user experience in poor network conditions.
+- **Local caching & offline** features (e.g., downloaded videos, ephemeral local storage) bolster user experience in poor network conditions.  
+- **AI-based story & voiceover** capabilities demonstrate how large language models and TTS can be integrated smoothly, adding narrative depth to a short-video platform.
 
 ### Myths
 - **“Serverless can’t handle big video workflows.”**  
@@ -118,6 +127,9 @@ Hypeloop is a video-centric mobile application that leverages **direct Mux uploa
 - **“Once you watch everything, the feed is just blank.”**  
   A “Caught Up” screen clarifies that no unseen content remains and offers a refresh approach, closing the user-experience loop.
 
+- **“AI-driven features are too complex to integrate.”**  
+  With well-structured Cloud Functions, hooking up GPT-based story generation, TTS, and image generation through Leonardo is straightforward, modular, and maintainable.
+
 ---
 
 ## 4. Knowledge Tree
@@ -128,7 +140,8 @@ Hypeloop is a video-centric mobile application that leverages **direct Mux uploa
 - **Cloud Functions**  
   - Generate Mux upload URLs and handle Mux webhook events.  
   - Provide on-demand user icon generation, returning base64 GIF data.  
-  - Store user metadata (icons, video references) in Firestore.
+  - Store user metadata (icons, video references) in Firestore.  
+  - **Implement an AI-driven workflow** that uses GPT for story generation, extracts keyframes, determines visual styles via Leonardo, and optionally synthesizes voiceovers with OpenAI TTS.  
 
 - **SwiftUI Front-End**  
   - Implements a **SwipeableVideoPlayer** with 4-direction swipes for like/dislike/share/save.  
@@ -140,9 +153,10 @@ Hypeloop is a video-centric mobile application that leverages **direct Mux uploa
   - Maintains a lightweight Bloom Filter (`BloomFilterStore`) in Firestore to track viewed video IDs.  
   - Ensures fresh content by skipping known IDs.
 
-- **Profile Icons**  
-  - A Node.js function uses the `canvas` + `gifencoder` libraries to produce visually rich, generative GIFs.  
-  - Stored in Firestore as base64-encoded strings, retrieved in SwiftUI for dynamic, animated user profile icons.
+- **Profile Icons & Story Scenes**  
+  - A Node.js function uses the `canvas` + `gifencoder` libraries to produce visually rich, generative GIFs for user icons.  
+  - **Leonardo API** is leveraged to create high-quality images or short motion clips that correspond to story keyframes.  
+  - **TTS** integration with OpenAI’s speech models generates audio tracks for story scenes, then uploads them to Mux for streamlined playback.
 
 - **Video Management**  
   - A dedicated `VideoManager` fetches, preloads, and navigates the video queue.  
@@ -150,7 +164,6 @@ Hypeloop is a video-centric mobile application that leverages **direct Mux uploa
   - Ties in with a “Saved Videos” grid, enabling local downloads and offline viewing.
 
 #### Sources
-
 - **Firebase & Serverless Functions**  
   - [Firebase Functions Docs](https://firebase.google.com/docs/functions)  [oai_citation_attribution:11‡firebase.google.com](https://firebase.google.com/docs/functions)  
   - [Cloud Firestore Documentation](https://firebase.google.com/docs/firestore)  [oai_citation_attribution:12‡firebase.google.com](https://firebase.google.com/docs/storage/web/upload-files)
@@ -174,6 +187,12 @@ Hypeloop is a video-centric mobile application that leverages **direct Mux uploa
 - **Bloom Filter Fundamentals**  
   - [Bloom Filter – Wikipedia](https://en.wikipedia.org/wiki/Bloom_filter)  [oai_citation_attribution:19‡en.wikipedia.org](https://en.wikipedia.org/wiki/Bloom_filter)
 
+- **OpenAI TTS & GPT**  
+  - [OpenAI Docs](https://platform.openai.com/docs/)  [oai_citation_attribution:20‡openai.com](https://platform.openai.com/docs/)
+
+- **Leonardo API**  
+  - [Leonardo.ai Docs](https://www.leonardo.ai/)  [oai_citation_attribution:21‡leonardo.ai](https://www.leonardo.ai/)
+
 ---
 
-> **This updated Brain Lift document reflects Hypeloop’s multi-directional swipe design, Bloom filter approach for content freshness, generative profile icons, and robust serverless architecture—showcasing how Firebase, SwiftUI, and Mux combine for a future-proof short-video platform.**
+> **This updated Brain Lift document reflects Hypeloop’s multi-directional swipe design, Bloom filter approach for content freshness, generative profile icons, and robust serverless architecture—showcasing how Firebase, SwiftUI, Mux, and modern AI (GPT, TTS, Leonardo) combine for a future-proof short-video platform.**
