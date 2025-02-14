@@ -108,7 +108,13 @@ struct CreateTabView: View {
                     uploadProgress: $uploadProgress,
                     uploadComplete: $uploadComplete,
                     onVideoSelect: handleVideoSelection,
-                    onUpload: uploadVideo
+                    onUpload: {
+                        guard let videoURL = selectedVideoURL else {
+                            print("❌ Error: No video URL selected")
+                            return
+                        }
+                        await uploadVideo(from: videoURL, description: description)
+                    }
                 )
                 FileOperationsView(
                     currentPickerType: $currentPickerType,
@@ -129,7 +135,10 @@ struct CreateTabView: View {
                     selectedStoryId: $selectedStoryId,
                     isLoadingStoryAssets: $isLoadingStoryAssets,
                     storyMergeProgress: $storyMergeProgress,
-                    shouldUpload: $shouldUpload,  // Add this binding
+                    shouldUpload: $shouldUpload,
+                    isUploading: $isUploading,
+                    isOptimizing: $isOptimizing,
+                    uploadProgress: $uploadProgress,
                     onMergeStoryAssets: { useMotion in
                         Task {
                             await mergeStoryAssets(useMotion: useMotion, outputTo: shouldUpload ? .upload : .photos)
@@ -267,7 +276,13 @@ struct CreateTabView: View {
         return outputURL
     }
     
-    private func getMuxUploadUrl(filename: String, fileSize: Int, contentType: String) async throws -> MuxUploadResponse {
+    private func getMuxUploadUrl(filename: String, fileSize: Int, contentType: String, description: String) async throws -> MuxUploadResponse {
+        print("🎯 getMuxUploadUrl called with:")
+        print("  filename: \(filename)")
+        print("  fileSize: \(fileSize)")
+        print("  contentType: \(contentType)")
+        print("  description: \(description)")
+        
         let callable = functions.httpsCallable("getVideoUploadUrl")
         
         let data: [String: Any] = [
@@ -277,12 +292,29 @@ struct CreateTabView: View {
             "description": description
         ]
         
-        let result = try await callable.call(data)
-        guard let response = try? JSONSerialization.data(withJSONObject: result.data) else {
-            throw NSError(domain: "MuxUpload", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response format"])
-        }
+        print("📡 Calling Cloud Function with data:")
+        print(data)
         
-        return try JSONDecoder().decode(MuxUploadResponse.self, from: response)
+        do {
+            let result = try await callable.call(data)
+            print("✅ Cloud Function response received:")
+            print(result.data)
+            
+            guard let response = try? JSONSerialization.data(withJSONObject: result.data) else {
+                print("❌ Failed to serialize response data")
+                throw NSError(domain: "MuxUpload", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response format"])
+            }
+            
+            let muxResponse = try JSONDecoder().decode(MuxUploadResponse.self, from: response)
+            print("✅ Successfully decoded MuxUploadResponse")
+            return muxResponse
+            
+        } catch {
+            print("❌ Cloud Function error:")
+            print("  Error type: \(type(of: error))")
+            print("  Error details: \(error)")
+            throw error
+        }
     }
     
     private func uploadToMux(videoURL: URL, uploadURL: String) async throws {
@@ -305,38 +337,43 @@ struct CreateTabView: View {
         }
     }
     
-    private func uploadVideo() async {
-        guard let videoURL = selectedVideoURL else { return }
-        await uploadVideo(from: videoURL, description: description)
-    }
-    
     private func uploadVideo(from videoURL: URL, description: String) async {
+        print("📤 Starting video upload process")
+        print("  Source URL: \(videoURL)")
+        print("  Description: \(description)")
+        
         isOptimizing = true
         uploadProgress = 0
-        isDescriptionFocused = false  // Dismiss keyboard first, but keep the text
+        isDescriptionFocused = false
         
         do {
-            // Optimize video before upload
+            print("🔄 Optimizing video...")
             let optimizedURL = try await optimizeVideo(from: videoURL)
+            print("✅ Video optimized successfully")
+            print("  Optimized URL: \(optimizedURL)")
+            
             isOptimizing = false
             isUploading = true
             
             // Get file size and prepare for upload
             let fileAttributes = try FileManager.default.attributesOfItem(atPath: optimizedURL.path)
             let fileSize = fileAttributes[FileAttributeKey.size] as? Int ?? 0
+            print("📊 File size: \(fileSize) bytes")
             
-            // Get Mux upload URL
+            print("🎬 Getting Mux upload URL...")
             let muxResponse = try await getMuxUploadUrl(
                 filename: optimizedURL.lastPathComponent,
                 fileSize: fileSize,
-                contentType: "video/mp4"
+                contentType: "video/mp4",
+                description: description
             )
             
-            print("Got Mux upload ID: \(muxResponse.uploadId)")
+            print("✅ Got Mux upload ID: \(muxResponse.uploadId)")
             
             // Create initial Firestore document
             let user = Auth.auth().currentUser!
-            print("📱 Debug - User info:")
+            print("👤 User info:")
+            print("  UID: \(user.uid)")
             print("  DisplayName: \(user.displayName ?? "nil")")
             print("  Email: \(user.email ?? "nil")")
             print("  Provider ID: \(user.providerData.first?.providerID ?? "nil")")
@@ -355,37 +392,47 @@ struct CreateTabView: View {
             let identifierHash = CreatorNameGenerator.generateCreatorHash(userIdentifier)
             let displayName = CreatorNameGenerator.generateDisplayName(from: identifierHash)
             
-            print("📱 Debug - Creator info:")
+            print("👤 Creator info:")
             print("  User ID: \(uid)")
             print("  Identifier: \(userIdentifier)")
             print("  Display Name: \(displayName)")
             
+            print("💾 Creating Firestore document...")
             try await db.collection("videos").document(muxResponse.uploadId).setData([
                 "id": muxResponse.uploadId,
                 "creator": uid,
                 "display_name": displayName,
                 "description": description,
-                "created_at": Int(Date().timeIntervalSince1970 * 1000), // Convert to milliseconds as integer
+                "created_at": Int(Date().timeIntervalSince1970 * 1000),
                 "status": "uploading"
             ])
+            print("✅ Firestore document created")
             
-            // Upload to Mux
+            print("📤 Uploading to Mux...")
             try await uploadToMux(videoURL: optimizedURL, uploadURL: muxResponse.uploadUrl)
+            print("✅ Upload to Mux complete")
             
-            // Update video status
+            print("🔄 Updating video status...")
             await updateVideoStatus(assetId: muxResponse.uploadId)
+            print("✅ Video status updated")
             
             // Clean up temporary files
+            print("🧹 Cleaning up temporary files...")
             try? FileManager.default.removeItem(at: optimizedURL)
             try? FileManager.default.removeItem(at: videoURL)
+            print("✅ Temporary files cleaned up")
             
             isUploading = false
             uploadProgress = 0
             uploadComplete = true
-            self.description = ""  // Clear description after successful upload
-            selectedVideoURL = nil  // Remove video but keep success state
+            self.description = ""
+            selectedVideoURL = nil
+            
+            print("✅ Upload process completed successfully")
             
         } catch {
+            print("❌ Upload error: \(error.localizedDescription)")
+            print("  Error details: \(error)")
             alertMessage = "Upload failed: \(error.localizedDescription)"
             showAlert = true
             isUploading = false

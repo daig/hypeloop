@@ -5,7 +5,10 @@ struct StoryMergeView: View {
     @Binding var selectedStoryId: String?
     @Binding var isLoadingStoryAssets: Bool
     @Binding var storyMergeProgress: String
-    @Binding var shouldUpload: Bool  // Change from @State to @Binding
+    @Binding var shouldUpload: Bool
+    @Binding var isUploading: Bool  // Add binding for upload state
+    @Binding var isOptimizing: Bool  // Add binding for optimization state
+    @Binding var uploadProgress: Double  // Add binding for upload progress
     @State private var useMotion: Bool = true  // Default to true for motion files
     
     let onMergeStoryAssets: (Bool) async -> Void  // Updated to take useMotion parameter
@@ -28,11 +31,13 @@ struct StoryMergeView: View {
                 .cornerRadius(12)
             }
             
-            if isLoadingStoryAssets {
+            if isLoadingStoryAssets || isUploading || isOptimizing {
                 VStack(spacing: 8) {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    Text(storyMergeProgress)
+                    Text(isUploading ? "Uploading \(Int(uploadProgress))%" :
+                         isOptimizing ? "Optimizing video..." :
+                         storyMergeProgress)
                         .foregroundColor(.white)
                         .font(.caption)
                 }
