@@ -202,7 +202,5 @@ enum FilePickerType {
         }
     }
     
-    var allowsMultiple: Bool {
-        self == .both
-    }
+    var allowsMultiple: Bool { self == .both }
 } 

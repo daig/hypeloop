@@ -90,92 +90,46 @@ struct CreateTabView: View {
     private var mainContent: some View {
         ScrollView {
             VStack(spacing: 24) {
-                uploadSection
-                fileOperationsSection
-                storyMergeSection
+                UploadSectionView(
+                    selectedItem: $selectedItem,
+                    selectedVideoURL: $selectedVideoURL,
+                    description: $description,
+                    isUploading: $isUploading,
+                    isOptimizing: $isOptimizing,
+                    uploadProgress: $uploadProgress,
+                    uploadComplete: $uploadComplete,
+                    onVideoSelect: handleVideoSelection,
+                    onUpload: uploadVideo
+                )
+                FileOperationsView(
+                    currentPickerType: $currentPickerType,
+                    showingFilePicker: $showingFilePicker,
+                    showingFolderPicker: $showingFolderPicker,
+                    sandboxVideoURL: $sandboxVideoURL,
+                    sandboxAudioURL: $sandboxAudioURL,
+                    isMerging: $isMerging,
+                    isGeneratingStory: $isGeneratingStory,
+                    isFullBuild: $isFullBuild,
+                    numKeyframes: $numKeyframes,
+                    onMergeFiles: mergeFiles,
+                    onTestStoryGeneration: testStoryGeneration,
+                    onProcessFolderSelection: processFolderSelection
+                )
+                StoryMergeView(
+                    showingStoryPicker: $showingStoryPicker,
+                    selectedStoryId: $selectedStoryId,
+                    isLoadingStoryAssets: $isLoadingStoryAssets,
+                    storyMergeProgress: $storyMergeProgress,
+                    onMergeStoryAssets: { useMotion in
+                        Task {
+                            await mergeStoryAssets(useMotion: useMotion)
+                        }
+                    }
+                )
             }
             .padding(.horizontal)
             .padding(.top, 20)
         }
-    }
-    
-    private var uploadSection: some View {
-        VStack {
-            if uploadComplete && selectedVideoURL == nil {
-                UploadSuccessView(
-                    selectedItem: $selectedItem,
-                    onVideoSelect: { newItem in
-                        Task { await handleVideoSelection(newItem) }
-                    }
-                )
-            }
-            
-            if let videoURL = selectedVideoURL {
-                VideoPreviewView(onChangeVideo: {
-                    selectedItem = nil
-                    selectedVideoURL = nil
-                })
-            } else if !uploadComplete {
-                UploadPromptView(
-                    selectedItem: $selectedItem,
-                    isLoadingVideo: isLoadingVideo
-                )
-                .onChange(of: selectedItem) { newItem in
-                    Task { await handleVideoSelection(newItem) }
-                }
-            }
-            
-            if isOptimizing || isUploading {
-                UploadProgressView(
-                    isOptimizing: isOptimizing,
-                    uploadProgress: uploadProgress
-                )
-            }
-            
-            if selectedVideoURL != nil {
-                DescriptionInputView(description: $description)
-            }
-            
-            if selectedVideoURL != nil && !uploadComplete {
-                UploadButtonView(
-                    isUploading: isUploading,
-                    isOptimizing: isOptimizing,
-                    isDisabled: selectedVideoURL == nil || description.isEmpty || isUploading || isOptimizing,
-                    onUpload: uploadVideo
-                )
-            }
-        }
-    }
-    
-    private var fileOperationsSection: some View {
-        FileOperationsView(
-            currentPickerType: $currentPickerType,
-            showingFilePicker: $showingFilePicker,
-            showingFolderPicker: $showingFolderPicker,
-            sandboxVideoURL: $sandboxVideoURL,
-            sandboxAudioURL: $sandboxAudioURL,
-            isMerging: $isMerging,
-            isGeneratingStory: $isGeneratingStory,
-            isFullBuild: $isFullBuild,
-            numKeyframes: $numKeyframes,
-            onMergeFiles: mergeFiles,
-            onTestStoryGeneration: testStoryGeneration,
-            onProcessFolderSelection: processFolderSelection
-        )
-    }
-    
-    private var storyMergeSection: some View {
-        StoryMergeView(
-            showingStoryPicker: $showingStoryPicker,
-            selectedStoryId: $selectedStoryId,
-            isLoadingStoryAssets: $isLoadingStoryAssets,
-            storyMergeProgress: $storyMergeProgress,
-            onMergeStoryAssets: { useMotion in
-                Task {
-                    await mergeStoryAssets(useMotion: useMotion)
-                }
-            }
-        )
     }
     
     var body: some View {
@@ -775,8 +729,8 @@ struct CreateTabView: View {
                 "config": [
                     "extract_chars": true,
                     "generate_voiceover": true,
-                    "generate_images": isFullBuild,
-                    "generate_motion": isFullBuild,  // Keep motion generation tied to full build
+                    "generate_images": true,  // Always true now
+                    "generate_motion": true,  // Always true now
                     "save_script": true,
                     "num_keyframes": numKeyframes,  // Use the selected number of keyframes
                     "output_dir": "output"
@@ -790,27 +744,23 @@ struct CreateTabView: View {
             if let resultData = result.data as? [String: Any] {
                 storyGenerationResponse = "Story generation successful: \(resultData)"
                 
-                if isFullBuild {
-                    if let storyId = resultData["storyId"] as? String {
-                        print("✅ Story generation completed with ID: \(storyId)")
-                        alertMessage = "Story generation completed! Starting asset generation..."
+                if let storyId = resultData["storyId"] as? String {
+                    print("✅ Story generation completed with ID: \(storyId)")
+                    alertMessage = "Story generation completed! Starting asset generation..."
+                    showAlert = true
+                    
+                    // Start monitoring the story assets
+                    Task {
+                        // Wait a bit to let assets start generating
+                        try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
+                        print("🔄 Starting story merge process for ID: \(storyId)")
+                        selectedStoryId = storyId
+                        alertMessage = "Starting to merge story assets..."
                         showAlert = true
-                        
-                        // Start monitoring the story assets
-                        Task {
-                            // Wait a bit to let assets start generating
-                            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
-                            print("🔄 Starting story merge process for ID: \(storyId)")
-                            selectedStoryId = storyId
-                            alertMessage = "Starting to merge story assets..."
-                            showAlert = true
-                            await mergeStoryAssets(useMotion: true)
-                        }
-                    } else {
-                        alertMessage = "Full story generation started but couldn't get story ID"
+                        await mergeStoryAssets(useMotion: true)
                     }
                 } else {
-                    alertMessage = "Story generation test completed successfully!"
+                    alertMessage = "Full story generation started but couldn't get story ID"
                 }
             } else {
                 alertMessage = "Story generation completed but response format was unexpected"
@@ -844,7 +794,7 @@ struct CreateTabView: View {
             let audioSnapshot = try await audioQuery.getDocuments()
             let imageSnapshot = try await imageQuery.getDocuments()
             
-            print("📊 Found \(audioSnapshot.documents.count) audio files and \(imageSnapshot.documents.count) images")
+            print("�� Found\(audioSnapshot.documents.count) audio files and \(imageSnapshot.documents.count) images")
             
             // Sort assets by sceneNumber
             let audioAssets = audioSnapshot.documents
