@@ -53,6 +53,7 @@ struct IncubatingStory: Identifiable, Equatable {
     let status: String
     let scenesRendered: Int
     let sceneCount: Int
+    let keywords: [String]
     var isHatching: Bool = false
     var hatchingProgress: String = ""
     var isHatchingUpload: Bool = false
@@ -67,6 +68,7 @@ struct IncubatingStory: Identifiable, Equatable {
         lhs.status == rhs.status &&
         lhs.scenesRendered == rhs.scenesRendered &&
         lhs.sceneCount == rhs.sceneCount &&
+        lhs.keywords == rhs.keywords &&
         lhs.isHatching == rhs.isHatching &&
         lhs.hatchingProgress == rhs.hatchingProgress &&
         lhs.isHatchingUpload == rhs.isHatchingUpload &&
@@ -85,6 +87,11 @@ struct IncubatingStoryCard: View {
     @Binding var alertMessage: String
     let onDelete: (String) -> Void
     let onHatch: (IncubatingStory, Bool) -> Void
+    
+    private var progressPercentage: Int {
+        guard story.sceneCount > 0 else { return 0 }
+        return Int((Double(story.scenesRendered) / Double(story.sceneCount)) * 100)
+    }
     
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -115,7 +122,7 @@ struct IncubatingStoryCard: View {
                     .frame(width: 100)
                 
                 // Progress text
-                Text("\(story.scenesRendered)/\(story.sceneCount) scenes")
+                Text("\(progressPercentage)%")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(.white)
                 
@@ -124,17 +131,16 @@ struct IncubatingStoryCard: View {
                     .font(.system(size: 14))
                     .foregroundColor(story.status == "ready" ? .green : .white.opacity(0.8))
                 
-                // Keyframes info
-                Text("\(story.numKeyframes) keyframes")
-                    .font(.system(size: 14))
-                    .foregroundColor(.white.opacity(0.7))
+                // Keywords
+                if !story.keywords.isEmpty {
+                    Text(story.keywords.joined(separator: " • "))
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                }
                 
-                // Time elapsed
-                Text(timeElapsed(since: story.created_at))
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.6))
-                
-                // Add hatching progress if active
+                // Hatching progress
                 if story.isHatching {
                     VStack(spacing: 8) {
                         ProgressView()
@@ -264,6 +270,15 @@ struct IncubatingStoriesTabView: View {
     
     // Add state for sheet
     @State private var showDescriptionSheet = false
+    
+    @State private var showingStoreSheet = false
+    @State private var showingCreditConfirmation = false
+    @State private var pendingKeyframeCount = 4
+    @State private var pendingCreditCost = 40
+    
+    // Add state for keywords in the main view
+    @State private var storyKeywords: [String] = ["magical forest", "lost child", "friendly dragon"]
+    @State private var newKeyword: String = ""
     
     private let db = Firestore.firestore()
     private let functions = Functions.functions(region: "us-central1")
@@ -517,7 +532,7 @@ struct IncubatingStoriesTabView: View {
         
         let callable = functions.httpsCallable("generateStoryFunction")
         let data: [String: Any] = [
-            "keywords": ["magical forest", "lost child", "friendly dragon"],
+            "keywords": storyKeywords,
             "config": [
                 "extract_chars": true,
                 "generate_voiceover": true,
@@ -545,6 +560,7 @@ struct IncubatingStoriesTabView: View {
                     "creator": user.uid,
                     "created_at": Int(Date().timeIntervalSince1970 * 1000),
                     "num_keyframes": numKeyframes,
+                    "keywords": storyKeywords,
                     "scenesRendered": 0
                 ]
                 print("📝 Firestore update data:", updateData)
@@ -712,14 +728,10 @@ struct IncubatingStoriesTabView: View {
                                     
                                     // Generate Story Button
                                     Button {
-                                        Task {
-                                            do {
-                                                selectedStoryId = try await testStoryGeneration(numKeyframes: numKeyframes, isFullBuild: true)
-                                            } catch {
-                                                alertMessage = error.localizedDescription
-                                                showAlert = true
-                                            }
-                                        }
+                                        let creditCost = numKeyframes * 10
+                                        pendingKeyframeCount = numKeyframes
+                                        pendingCreditCost = creditCost
+                                        showingCreditConfirmation = true
                                     } label: {
                                         VStack(spacing: 4) {
                                             if isGeneratingStory || isLoadingStoryAssets {
@@ -852,23 +864,110 @@ struct IncubatingStoriesTabView: View {
                     ZStack {
                         Color.black.ignoresSafeArea()
                         
-                        VStack(spacing: 20) {
-                            HStack {
-                                Text("Number of Keyframes")
-                                    .foregroundColor(.white)
-                                Spacer()
-                                Stepper(
-                                    value: $numKeyframes,
-                                    in: 2...10,
-                                    step: 1
-                                ) {
-                                    Text("\(numKeyframes)")
+                        ScrollView {
+                            VStack(spacing: 24) {
+                                // Story Length Section
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Story Length")
+                                        .font(.headline)
                                         .foregroundColor(.white)
+                                    
+                                    Text("More scenes create longer, more detailed stories")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                    
+                                    HStack {
+                                        Text("\(numKeyframes) scenes")
+                                            .foregroundColor(.white)
+                                        Spacer()
+                                        Stepper("", value: $numKeyframes, in: 2...10, step: 1)
+                                            .labelsHidden()
+                                    }
+                                    .padding(.top, 4)
+                                    
+                                    Text("\(numKeyframes * 10) credits")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
                                 }
+                                .padding(.horizontal)
+                                .padding(.bottom, 8)
+                                
+                                Divider()
+                                    .background(Color.white.opacity(0.1))
+                                
+                                // Keywords Input Section
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Story Keywords")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                    
+                                    Text("Keywords help shape your story's theme")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                    
+                                    // Keyword Input
+                                    HStack {
+                                        TextField("Add keyword", text: $newKeyword)
+                                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                                        
+                                        Button(action: {
+                                            if !newKeyword.isEmpty {
+                                                storyKeywords.append(newKeyword)
+                                                newKeyword = ""
+                                            }
+                                        }) {
+                                            Image(systemName: "plus.circle.fill")
+                                                .foregroundColor(.white)
+                                        }
+                                        .disabled(newKeyword.isEmpty)
+                                    }
+                                }
+                                .padding(.horizontal)
+                                .padding(.bottom, 8)
+                                
+                                Divider()
+                                    .background(Color.white.opacity(0.1))
+                                
+                                // Current Keywords Section
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("Current Keywords")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                    
+                                    if storyKeywords.isEmpty {
+                                        Text("No keywords added yet")
+                                            .font(.caption)
+                                            .foregroundColor(.gray)
+                                    } else {
+                                        ScrollView {
+                                            FlowLayout(spacing: 8) {
+                                                ForEach(storyKeywords, id: \.self) { keyword in
+                                                    HStack(spacing: 4) {
+                                                        Text(keyword)
+                                                            .foregroundColor(.white)
+                                                        Button {
+                                                            storyKeywords.removeAll { $0 == keyword }
+                                                        } label: {
+                                                            Image(systemName: "xmark.circle.fill")
+                                                                .foregroundColor(.white.opacity(0.7))
+                                                        }
+                                                    }
+                                                    .padding(.horizontal, 8)
+                                                    .padding(.vertical, 4)
+                                                    .background(Color(white: 0.2))
+                                                    .cornerRadius(12)
+                                                }
+                                            }
+                                            .padding(.top, 4)
+                                        }
+                                        .frame(maxHeight: 200)
+                                    }
+                                }
+                                .padding(.horizontal)
+                                
+                                Spacer()
                             }
-                            .padding()
-                            
-                            Spacer()
+                            .padding(.vertical)
                         }
                     }
                     .navigationTitle("Story Settings")
@@ -881,7 +980,41 @@ struct IncubatingStoriesTabView: View {
                         }
                     }
                 }
-                .presentationDetents([.height(200)])
+                .presentationDetents([.medium])
+            }
+            .alert("Generate Story", isPresented: $showingCreditConfirmation) {
+                Button("Cancel", role: .cancel) { }
+                Button("Generate") {
+                    Task {
+                        // Check if user has enough credits
+                        if authService.credits < pendingCreditCost {
+                            alertMessage = "Not enough credits! You need \(pendingCreditCost) credits to generate a story with \(pendingKeyframeCount) scenes. Buy more credits to continue."
+                            showAlert = true
+                            showingStoreSheet = true
+                            return
+                        }
+                        
+                        // Try to use credits first
+                        let success = await authService.useCredits(pendingCreditCost)
+                        if !success {
+                            alertMessage = "Failed to use credits. Please try again."
+                            showAlert = true
+                            return
+                        }
+                        
+                        // Generate the story
+                        do {
+                            selectedStoryId = try await testStoryGeneration(numKeyframes: pendingKeyframeCount, isFullBuild: true)
+                        } catch {
+                            // If story generation fails, refund the credits
+                            await authService.addCredits(pendingCreditCost)
+                            alertMessage = error.localizedDescription
+                            showAlert = true
+                        }
+                    }
+                }
+            } message: {
+                Text("This will use \(pendingCreditCost) credits to generate a story with \(pendingKeyframeCount) scenes. Do you want to continue?")
             }
         }
         .onChange(of: networkMonitor.isConnected) { isConnected in
@@ -933,7 +1066,8 @@ struct IncubatingStoriesTabView: View {
                         numKeyframes: data["num_keyframes"] as? Int ?? 0,
                         status: data["status"] as? String ?? "",
                         scenesRendered: data["scenesRendered"] as? Int ?? 0,
-                        sceneCount: data["sceneCount"] as? Int ?? 0
+                        sceneCount: data["sceneCount"] as? Int ?? 0,
+                        keywords: data["keywords"] as? [String] ?? []
                     )
                 }
                 
@@ -1117,5 +1251,51 @@ struct IncubatingStoriesTabView: View {
                 }
             }
         )
+    }
+}
+
+// Add FlowLayout for keyword tags
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+    
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = FlowResult(in: proposal.width ?? 0, subviews: subviews, spacing: spacing)
+        return result.size
+    }
+    
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = FlowResult(in: bounds.width, subviews: subviews, spacing: spacing)
+        for (index, frame) in result.frames {
+            subviews[index].place(at: frame.origin, proposal: ProposedViewSize(frame.size))
+        }
+    }
+    
+    struct FlowResult {
+        var size: CGSize = .zero
+        var frames: [(Int, CGRect)] = []
+        
+        init(in maxWidth: CGFloat, subviews: Subviews, spacing: CGFloat) {
+            var currentX: CGFloat = 0
+            var currentY: CGFloat = 0
+            var lineHeight: CGFloat = 0
+            var maxWidth: CGFloat = 0
+            
+            for (index, subview) in subviews.enumerated() {
+                let viewSize = subview.sizeThatFits(.unspecified)
+                
+                if currentX + viewSize.width > maxWidth && currentX > 0 {
+                    currentX = 0
+                    currentY += lineHeight + spacing
+                    lineHeight = 0
+                }
+                
+                frames.append((index, CGRect(x: currentX, y: currentY, width: viewSize.width, height: viewSize.height)))
+                lineHeight = max(lineHeight, viewSize.height)
+                currentX += viewSize.width + spacing
+                maxWidth = max(maxWidth, currentX)
+            }
+            
+            size = CGSize(width: maxWidth, height: currentY + lineHeight)
+        }
     }
 } 
