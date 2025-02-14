@@ -93,6 +93,12 @@ struct CreateTabView: View {
     // Add state variable at the top with other @State variables
     @State private var numKeyframes: Int = 4
     
+    // Add new state variables for story merging
+    @State private var showingStoryPicker = false
+    @State private var selectedStoryId: String? = nil
+    @State private var isLoadingStoryAssets = false
+    @State private var storyMergeProgress: String = ""
+    
     // Shared instances
     private let functions = Functions.functions(region: "us-central1")
     private let db = Firestore.firestore()
@@ -126,6 +132,9 @@ struct CreateTabView: View {
                         
                         // New section for file operations
                         fileOperationsSection
+                        
+                        // Add the story merge section
+                        storyMergeSection
                         
                         if selectedVideoURL != nil && !uploadComplete {
                             uploadButton
@@ -586,6 +595,415 @@ struct CreateTabView: View {
             .background(Color(red: 0.15, green: 0.15, blue: 0.2))
             .cornerRadius(12)
         }
+    }
+    
+    // Add this new view component after the existing fileOperationsSection
+    private var storyMergeSection: some View {
+        VStack(spacing: 12) {
+            Text("Merge Story Assets")
+                .font(.headline)
+                .foregroundColor(.white)
+            
+            Button(action: { showingStoryPicker = true }) {
+                HStack {
+                    Image(systemName: "book.fill")
+                    Text(selectedStoryId != nil ? "Change Story" : "Select Story")
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color(red: 0.2, green: 0.2, blue: 0.3))
+                .foregroundColor(.white)
+                .cornerRadius(12)
+            }
+            
+            if isLoadingStoryAssets {
+                VStack(spacing: 8) {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    Text(storyMergeProgress)
+                        .foregroundColor(.white)
+                        .font(.caption)
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color(red: 0.2, green: 0.2, blue: 0.3))
+                .cornerRadius(12)
+            }
+            
+            if selectedStoryId != nil && !isLoadingStoryAssets {
+                Button(action: { Task { await mergeStoryAssets() } }) {
+                    HStack {
+                        Image(systemName: "arrow.triangle.merge")
+                        Text("Merge Story")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [.blue, .purple]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
+            }
+        }
+        .padding()
+        .background(Color(red: 0.15, green: 0.15, blue: 0.2))
+        .cornerRadius(12)
+        .sheet(isPresented: $showingStoryPicker) {
+            StoryPickerView(selectedStoryId: $selectedStoryId)
+        }
+    }
+    
+    // Add this new view for story selection
+    struct StoryPickerView: View {
+        @Environment(\.dismiss) private var dismiss
+        @Binding var selectedStoryId: String?
+        @State private var stories: [(id: String, keywords: [String])] = []
+        @State private var isLoading = true
+        @State private var errorMessage: String?
+        
+        private let db = Firestore.firestore()
+        
+        var body: some View {
+            NavigationView {
+                ZStack {
+                    Color(red: 0.1, green: 0.1, blue: 0.15)
+                        .ignoresSafeArea()
+                    
+                    if isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    } else if let error = errorMessage {
+                        Text(error)
+                            .foregroundColor(.red)
+                            .padding()
+                    } else if stories.isEmpty {
+                        Text("No stories found")
+                            .foregroundColor(.white)
+                    } else {
+                        List(stories, id: \.id) { story in
+                            Button(action: {
+                                selectedStoryId = story.id
+                                dismiss()
+                            }) {
+                                VStack(alignment: .leading) {
+                                    Text("Story ID: \(story.id)")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                    Text("Keywords: \(story.keywords.joined(separator: ", "))")
+                                        .font(.subheadline)
+                                        .foregroundColor(.gray)
+                                }
+                            }
+                            .listRowBackground(Color(red: 0.2, green: 0.2, blue: 0.3))
+                        }
+                        .listStyle(.plain)
+                    }
+                }
+                .navigationTitle("Select a Story")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button("Cancel") {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+            .onAppear {
+                loadStories()
+            }
+        }
+        
+        private func loadStories() {
+            guard let userId = Auth.auth().currentUser?.uid else {
+                errorMessage = "Please sign in to view stories"
+                isLoading = false
+                return
+            }
+            
+            db.collection("stories")
+                .whereField("userId", isEqualTo: userId)
+                .order(by: "created_at", descending: true)
+                .getDocuments { snapshot, error in
+                    isLoading = false
+                    
+                    if let error = error {
+                        errorMessage = "Error loading stories: \(error.localizedDescription)"
+                        return
+                    }
+                    
+                    stories = snapshot?.documents.compactMap { doc -> (id: String, keywords: [String])? in
+                        let data = doc.data()
+                        guard let keywords = data["keywords"] as? [String] else { return nil }
+                        return (id: doc.documentID, keywords: keywords)
+                    } ?? []
+                }
+        }
+    }
+    
+    // Add this new function to handle story asset merging
+    private func mergeStoryAssets() async {
+        guard let storyId = selectedStoryId else { return }
+        isLoadingStoryAssets = true
+        storyMergeProgress = "Loading story assets..."
+        
+        do {
+            // Get all audio and image assets for this story
+            let audioQuery = db.collection("audio").whereField("storyId", isEqualTo: storyId)
+            let imageQuery = db.collection("images").whereField("storyId", isEqualTo: storyId)
+            
+            let audioSnapshot = try await audioQuery.getDocuments()
+            let imageSnapshot = try await imageQuery.getDocuments()
+            
+            print("📊 Found \(audioSnapshot.documents.count) audio files and \(imageSnapshot.documents.count) images")
+            
+            // Sort assets by sceneNumber
+            let audioAssets = audioSnapshot.documents
+                .compactMap { doc -> (sceneNumber: Int, assetId: String?, playbackId: String?, downloadUrl: String?)? in
+                    let data = doc.data()
+                    guard let sceneNumber = data["sceneNumber"] as? Int else { return nil }
+                    let assetId = data["assetId"] as? String
+                    let playbackId = data["playbackId"] as? String
+                    let downloadUrl = data["download_url"] as? String
+                    return (sceneNumber, assetId, playbackId, downloadUrl)
+                }
+                .sorted { $0.sceneNumber < $1.sceneNumber }
+            
+            let imageAssets = imageSnapshot.documents
+                .compactMap { doc -> (sceneNumber: Int, url: String)? in
+                    let data = doc.data()
+                    guard let sceneNumber = data["sceneNumber"] as? Int,
+                          let url = data["url"] as? String else { return nil }
+                    return (sceneNumber, url)
+                }
+                .sorted { $0.sceneNumber < $1.sceneNumber }
+            
+            print("🔄 After processing:")
+            print("🎵 Audio assets: \(audioAssets.map { $0.sceneNumber })")
+            print("🖼️ Image assets: \(imageAssets.map { $0.sceneNumber })")
+            
+            // Create temporary directory for downloaded files
+            let tempDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            
+            // Download all assets
+            var pairs: [(videoURL: URL, audioURL: URL)] = []
+            var downloadedAudioFiles: Set<Int> = []
+            var downloadedVideoFiles: Set<Int> = []
+            
+            // Download audio files
+            for asset in audioAssets {
+                storyMergeProgress = "Downloading audio \(asset.sceneNumber + 1) of \(audioAssets.count)..."
+                let audioURL = tempDir.appendingPathComponent("audio_\(asset.sceneNumber).mp3")
+                
+                guard let downloadUrl = asset.downloadUrl else {
+                    print("⚠️ No download URL found for scene \(asset.sceneNumber)")
+                    continue
+                }
+                
+                print("🔍 Starting download for scene \(asset.sceneNumber)")
+                print("📍 URL: \(downloadUrl)")
+                print("💾 Will save to: \(audioURL.path)")
+                
+                do {
+                    print("⬇️ Downloading data...")
+                    let (audioData, response) = try await URLSession.shared.data(from: URL(string: downloadUrl)!)
+                    print("📦 Download complete. Received \(audioData.count) bytes")
+                    if let httpResponse = response as? HTTPURLResponse {
+                        print("🌐 HTTP Status: \(httpResponse.statusCode)")
+                        print("🏷️ Content Type: \(httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "none")")
+                    }
+                    
+                    print("💾 Writing data to disk...")
+                    try audioData.write(to: audioURL)
+                    print("✅ Successfully wrote file to: \(audioURL.path)")
+                    
+                    downloadedAudioFiles.insert(asset.sceneNumber)
+                    print("✨ Completed processing for scene \(asset.sceneNumber)")
+                } catch {
+                    print("❌ Error for scene \(asset.sceneNumber):")
+                    print("   Error type: \(type(of: error))")
+                    print("   Description: \(error.localizedDescription)")
+                    if let urlError = error as? URLError {
+                        print("   URLError code: \(urlError.code.rawValue)")
+                        print("   URLError description: \(urlError)")
+                    }
+                    continue
+                }
+            }
+            
+            // Download and process image files
+            for asset in imageAssets {
+                storyMergeProgress = "Processing image \(asset.sceneNumber + 1) of \(imageAssets.count)..."
+                
+                // Download the image
+                print("📥 Image download URL for scene \(asset.sceneNumber): \(asset.url ?? "nil")")
+                let imageDownloadURL = URL(string: asset.url)!
+                let (imageData, _) = try await URLSession.shared.data(from: imageDownloadURL)
+                
+                // Create video from image
+                let videoURL = try await createVideoFromImage(imageData: imageData)
+                downloadedVideoFiles.insert(asset.sceneNumber)
+                print("✅ Created video for scene \(asset.sceneNumber)")
+                
+                // Check if we have both audio and video for this scene
+                if downloadedAudioFiles.contains(asset.sceneNumber) {
+                    let audioURL = tempDir.appendingPathComponent("audio_\(asset.sceneNumber).mp3")
+                    if FileManager.default.fileExists(atPath: audioURL.path) {
+                        pairs.append((videoURL: videoURL, audioURL: audioURL))
+                        print("🔗 Created pair for scene \(asset.sceneNumber)")
+                    }
+                }
+            }
+            
+            print("👥 Final pairs count: \(pairs.count)")
+            print("📂 Downloaded audio files: \(downloadedAudioFiles)")
+            print("📂 Created video files: \(downloadedVideoFiles)")
+            
+            if pairs.isEmpty {
+                throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "No valid pairs found. Audio files: \(downloadedAudioFiles.count), Video files: \(downloadedVideoFiles.count)"])
+            }
+            
+            // Process pairs and stitch them together
+            storyMergeProgress = "Merging assets..."
+            let outputURL = tempDir.appendingPathComponent("final_\(UUID().uuidString).mp4")
+            
+            let stitchedURL = try await VideoMerger.processPairsAndStitch(
+                pairs: pairs,
+                outputURL: outputURL
+            )
+            
+            // Save to Photos library
+            try await PHPhotoLibrary.shared().performChanges {
+                let request = PHAssetCreationRequest.forAsset()
+                request.addResource(with: .video, fileURL: stitchedURL, options: nil)
+            }
+            
+            // Clean up
+            try FileManager.default.removeItem(at: tempDir)
+            
+            alertMessage = "Story assets merged successfully! The video has been saved to your Photos library."
+            selectedStoryId = nil
+            
+        } catch {
+            alertMessage = "Failed to merge story assets: \(error.localizedDescription)"
+        }
+        
+        showAlert = true
+        isLoadingStoryAssets = false
+        storyMergeProgress = ""
+    }
+    
+    private func createVideoFromImage(imageData: Data, duration: Double = 3.0) async throws -> URL {
+        let tempDir = FileManager.default.temporaryDirectory
+        let videoURL = tempDir.appendingPathComponent("\(UUID().uuidString).mp4")
+        
+        // Create AVAssetWriter
+        let assetWriter = try AVAssetWriter(url: videoURL, fileType: .mp4)
+        
+        // Create video settings
+        let videoSettings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: 512,
+            AVVideoHeightKey: 512,
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: 2000000,
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
+            ]
+        ]
+        
+        // Create writer input
+        let writerInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+        writerInput.expectsMediaDataInRealTime = true
+        
+        // Create pixel buffer adapter
+        let attributes: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB,
+            kCVPixelBufferWidthKey as String: 512,
+            kCVPixelBufferHeightKey as String: 512
+        ]
+        
+        let adapter = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: writerInput,
+            sourcePixelBufferAttributes: attributes
+        )
+        
+        assetWriter.add(writerInput)
+        try await assetWriter.startWriting()
+        assetWriter.startSession(atSourceTime: .zero)
+        
+        // Create UIImage from data
+        guard let uiImage = UIImage(data: imageData),
+              let cgImage = uiImage.cgImage else {
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create image from data"])
+        }
+        
+        // Create pixel buffer
+        var pixelBuffer: CVPixelBuffer?
+        try CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            512,
+            512,
+            kCVPixelFormatType_32ARGB,
+            attributes as CFDictionary,
+            &pixelBuffer
+        )
+        
+        guard let buffer = pixelBuffer else {
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create pixel buffer"])
+        }
+        
+        // Lock buffer and draw image into it
+        CVPixelBufferLockBaseAddress(buffer, [])
+        let pixelData = CVPixelBufferGetBaseAddress(buffer)
+        let rgbColorSpace = CGColorSpaceCreateDeviceRGB()
+        
+        guard let context = CGContext(
+            data: pixelData,
+            width: 512,
+            height: 512,
+            bitsPerComponent: 8,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+            space: rgbColorSpace,
+            bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
+        ) else {
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to create context"])
+        }
+        
+        // Draw image
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: 512, height: 512))
+        CVPixelBufferUnlockBaseAddress(buffer, [])
+        
+        // Write frames
+        let frameCount = Int(duration * 24) // 24 fps
+        
+        // Set up the writer input once, outside the loop
+        writerInput.requestMediaDataWhenReady(on: .main) {
+            // The block intentionally left empty - we'll handle writing in our loop
+        }
+        
+        for frameNumber in 0..<frameCount {
+            let presentationTime = CMTime(value: CMTimeValue(frameNumber), timescale: 24)
+            
+            // Simple polling with a short sleep
+            while !writerInput.isReadyForMoreMediaData {
+                try await Task.sleep(nanoseconds: 1_000_000) // 1ms sleep
+            }
+            
+            adapter.append(buffer, withPresentationTime: presentationTime)
+        }
+        
+        // Finish writing
+        writerInput.markAsFinished()
+        await assetWriter.finishWriting()
+        
+        return videoURL
     }
     
     // MARK: - Helper Functions

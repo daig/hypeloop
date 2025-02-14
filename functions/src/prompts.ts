@@ -188,7 +188,7 @@ Remove any non-visual narrative elements but keep all visual character details f
 Return a list of optimized prompts, one for each keyframe, maintaining the same order as the input descriptions. Each prompt should be on a new line starting with the keyframe number (e.g., "1:", "2:", etc.).`;
 
 export const KEYFRAME_SCENE_GENERATION_PROMPT = `You are a master storyteller and dialogue writer. For each keyframe, you will create two connected scenes that occur in the same setting and timespan:
-1. A narration scene that introduces any new characters and sets the stage
+1. A narration scene where the narrator describes the scene and setting in first person
 2. A character dialogue scene that captures the primary actions
 
 Keyframe Information:
@@ -200,41 +200,44 @@ Available Characters:
 {character_profiles}
 
 CRITICAL LENGTH CONSTRAINTS:
-- Each scene's dialog MUST be exactly 10-15 words long
+- Each scene's dialog MUST be between 5-20 words long
 - Each scene MUST be readable in 5 seconds or less
 - Longer scenes will be rejected by the text-to-speech system
 - Count your words carefully before submitting
 
 Guidelines:
 1. For the Narration Scene:
-   - Use the narrator's voice to introduce any new characters and set the stage
+   - Use the narrator's established voice and personality
+   - Speak in FIRST PERSON with wonder and insight
    - Keep descriptions extremely concise but vivid
    - Focus on the most important visual elements
-   - MAXIMUM 15 WORDS - count them!
+   - MUST include actual spoken dialog from the narrator's perspective
+   - Example: "I watch with wonder as the moonlit garden reveals its ancient secrets."
+   - MINIMUM 5 WORDS, MAXIMUM 20 WORDS - count them!
 
 2. For the Character Dialog Scene:
    - Choose the most appropriate character to speak based on the action
    - Keep dialog natural but extremely concise
    - Focus on the main action or emotional moment
-   - MAXIMUM 15 WORDS - count them!
+   - MINIMUM 5 WORDS, MAXIMUM 20 WORDS - count them!
 
 Both scenes should:
 - Take place in the exact same setting and moment in time
 - Feel connected and flow naturally together
-- STRICTLY adhere to the 10-15 word limit
+- STRICTLY adhere to the 5-20 word limit
 - Be readable in 5 seconds or less
 - Maintain consistent character personalities
 - Support the overall story progression
 
-Example Format (note the word count):
-1. Narration (12 words):
-   "In the moonlit garden, Sarah discovers an ancient stone glowing with magic."
+Example Format:
+1. Narration (15 words):
+   "With wonder in my voice, I witness the moonlit garden's ancient stone awakening."
 
 2. Dialog (11 words):
    "The crystal pulses with power as I touch its surface."
 
 Return exactly TWO scenes:
-1. A narration scene using the narrator's voice to introduce new characters and set the stage
+1. A narration scene with the narrator speaking in first person with wonder and insight
 2. A character dialog scene featuring the most appropriate character for the main action
 
 DO NOT INCLUDE THE WORD COUNT IN YOUR FINAL RESPONSE.`;

@@ -189,16 +189,15 @@ export const muxWebhook = onRequest(
             const playbackId = event.data.playback_ids?.[0]?.id;
             const uploadId = event.data.upload_id;
 
-            if (!playbackId) {
-                logger.error("No playback ID found in ready event", { assetId });
-                res.status(400).json({ error: 'No playback ID' });
-                return;
-            }
-
             // Check if this is a video or audio asset
             const isAudio = event.data.tracks?.some((track: any) => track.type === 'audio');
 
             if (isAudio) {
+                // Get the input info to extract the download URL
+                const muxClient = getMuxClient();
+                const inputInfo = await muxClient.video.assets.retrieveInputInfo(assetId);
+                const downloadUrl = inputInfo[0]?.settings?.url;
+
                 // Find the audio record by uploadId
                 const audioQuery = await db.collection('audio')
                     .where('uploadId', '==', uploadId)
@@ -214,8 +213,9 @@ export const muxWebhook = onRequest(
                 const audioDoc = audioQuery.docs[0];
                 await audioDoc.ref.update({
                     status: 'ready',
-                    playbackId,
                     assetId,
+                    playbackId,
+                    download_url: downloadUrl,
                     updated_at: new Date().toISOString()
                 });
 
@@ -224,11 +224,12 @@ export const muxWebhook = onRequest(
                     storyId: audioDoc.data().storyId,
                     sceneNumber: audioDoc.data().sceneNumber,
                     uploadId,
+                    assetId,
                     playbackId,
-                    assetId
+                    downloadUrl
                 });
             } else {
-                // Handle video assets (existing code)
+                // Handle video assets
                 const videoRef = db.collection('videos').doc(uploadId);
                 const videoDoc = await videoRef.get();
 
@@ -240,15 +241,15 @@ export const muxWebhook = onRequest(
 
                 await videoRef.update({
                     status: 'ready',
-                    playback_id: playbackId,
                     asset_id: assetId,
+                    playback_id: playbackId,
                     updated_at: new Date().toISOString()
                 });
 
                 logger.info("Updated video status to ready", {
                     docId: videoDoc.id,
-                    playbackId,
-                    assetId
+                    assetId,
+                    playbackId
                 });
             }
         }

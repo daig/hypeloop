@@ -110,10 +110,10 @@ const KeyframesWithDialogSchema = z.object({
     leonardo_prompt: z.string().optional(),
     character: z.object({
       role: z.literal("narrator"),
-      name: z.string(),
-      backstory: z.string(),
-      physical_description: z.string(),
-      personality: z.string()
+      name: z.literal("Narrator"),
+      backstory: z.literal("I am the eternal storyteller, weaving tales through time and space."),
+      physical_description: z.literal("A warm, resonant voice that brings stories to life."),
+      personality: z.literal("Wise and engaging, I share stories with wonder and insight, drawing listeners into each magical moment.")
     })
   }),
   dialoguedScene: z.object({
@@ -297,51 +297,9 @@ export const generateKeyframeScenes = task("generate_keyframe_scenes", async (
     .replace("{characters_in_scene}", keyframe.characters_in_scene.join(", "))
     .replace("{character_profiles}", characterProfiles);
 
-  let result = await invokeChatCompletion(prompt, { schema: KeyframesWithDialogSchema }) as KeyframesWithDialog;
-  let retries = 0;
-  const maxRetries = 3;
+  const result = await invokeChatCompletion(prompt, { schema: KeyframesWithDialogSchema }) as KeyframesWithDialog;
 
-  while (retries < maxRetries) {
-    // Validate dialog length for each scene
-    const currentScenes = [result.narratedScene, result.dialoguedScene];
-    const invalidScenes = currentScenes.filter(scene => {
-      const wordCount = scene.dialog.trim().split(/\s+/).length;
-      // Allow 5-20 words instead of strictly 10-15
-      return wordCount < 5 || wordCount > 20 || !scene.dialog.trim();
-    });
-
-    if (invalidScenes.length === 0) {
-      // All scenes are valid
-      break;
-    }
-
-    console.log(`\nRetry ${retries + 1}: Some scenes had invalid dialog length. Current scenes:`);
-    currentScenes.forEach((scene, idx) => {
-      const wordCount = scene.dialog.trim().split(/\s+/).length;
-      console.log(`Scene ${idx + 1} (${wordCount} words):`);
-      console.log(`Character: ${scene.character.name} (${scene.character.role})`);
-      console.log(`Dialog: "${scene.dialog}"`);
-      if (wordCount < 5 || wordCount > 20 || !scene.dialog.trim()) {
-        console.log("⚠️ Invalid: " + (
-          !scene.dialog.trim() ? "Empty dialog" :
-          wordCount < 5 ? "Too short" :
-          "Too long"
-        ));
-      }
-      console.log("---");
-    });
-
-    retries++;
-
-    if (retries === maxRetries) {
-      throw new Error("Failed to generate valid scenes after maximum retries. Dialog length constraints not met.");
-    }
-
-    // Try generating again
-    result = await invokeChatCompletion(prompt, { schema: KeyframesWithDialogSchema }) as KeyframesWithDialog;
-  }
-
-  // Update previously seen characters
+  // Update the set of previously seen characters
   [result.narratedScene, result.dialoguedScene].forEach(scene => {
     scene.characters_in_scene.forEach(charName => {
       previouslySeenCharacters.add(charName);
