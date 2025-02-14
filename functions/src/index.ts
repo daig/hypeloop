@@ -389,30 +389,44 @@ export const leonardoWebhook = onRequest(
           // If motion is enabled, start motion generation
           if (imageData.motion) {
             try {
-              const leonardoApi = new LeonardoAPI(leonardoApiKey.value());
-              const motionGenerationId = await leonardoApi.generateMotion(images[0].id);
+              // Check if motion video record already exists
+              const existingMotionQuery = await db.collection('motion_videos')
+                .where('imageId', '==', imageDoc.id)
+                .limit(1)
+                .get();
 
-              if (motionGenerationId) {
-                // Create motion video record
-                await db.collection('motion_videos').add({
-                  imageId: imageDoc.id,
-                  storyId: imageData.storyId,
-                  sceneNumber: imageData.sceneNumber,
-                  generationId: motionGenerationId,
-                  status: 'generating',
-                  created_at: new Date().toISOString()
-                });
+              if (existingMotionQuery.empty) {
+                const leonardoApi = new LeonardoAPI(leonardoApiKey.value());
+                const motionGenerationId = await leonardoApi.generateMotion(images[0].id);
 
-                logger.info("Motion generation started", {
-                  imageId: imageDoc.id,
-                  storyId: imageData.storyId,
-                  sceneNumber: imageData.sceneNumber,
-                  motionGenerationId
-                });
+                if (motionGenerationId) {
+                  // Create motion video record
+                  await db.collection('motion_videos').add({
+                    imageId: imageDoc.id,
+                    storyId: imageData.storyId,
+                    sceneNumber: imageData.sceneNumber,
+                    generationId: motionGenerationId,
+                    status: 'generating',
+                    created_at: new Date().toISOString()
+                  });
+
+                  logger.info("Motion generation started", {
+                    imageId: imageDoc.id,
+                    storyId: imageData.storyId,
+                    sceneNumber: imageData.sceneNumber,
+                    motionGenerationId
+                  });
+                } else {
+                  logger.error("Failed to start motion generation", {
+                    imageId: imageDoc.id,
+                    storyId: imageData.storyId
+                  });
+                }
               } else {
-                logger.error("Failed to start motion generation", {
+                logger.info("Motion generation already exists for image", {
                   imageId: imageDoc.id,
-                  storyId: imageData.storyId
+                  storyId: imageData.storyId,
+                  sceneNumber: imageData.sceneNumber
                 });
               }
             } catch (error) {

@@ -102,20 +102,34 @@ const CharactersSchema = z.object({
 });
 
 const KeyframesWithDialogSchema = z.object({
-  scenes: z.array(z.object({
+  narratedScene: z.object({
     title: z.string(),
     description: z.string(),
     characters_in_scene: z.array(z.string()),
+    dialog: z.string(),
+    leonardo_prompt: z.string().optional(),
     character: z.object({
-      role: z.enum(["narrator", "child", "elder", "fairy", "hero", "villain", "sage", "sidekick"]),
+      role: z.literal("narrator"),
       name: z.string(),
       backstory: z.string(),
       physical_description: z.string(),
       personality: z.string()
-    }),
+    })
+  }),
+  dialoguedScene: z.object({
+    title: z.string(),
+    description: z.string(),
+    characters_in_scene: z.array(z.string()),
     dialog: z.string(),
-    leonardo_prompt: z.string().optional()
-  }))
+    leonardo_prompt: z.string().optional(),
+    character: z.object({
+      role: z.enum(["child", "elder", "fairy", "hero", "villain", "sage", "sidekick"]),
+      name: z.string(),
+      backstory: z.string(),
+      physical_description: z.string(),
+      personality: z.string()
+    })
+  })
 });
 
 // Task definitions
@@ -283,13 +297,14 @@ export const generateKeyframeScenes = task("generate_keyframe_scenes", async (
     .replace("{characters_in_scene}", keyframe.characters_in_scene.join(", "))
     .replace("{character_profiles}", characterProfiles);
 
-  let scenes = await invokeChatCompletion(prompt, { schema: KeyframesWithDialogSchema }) as KeyframesWithDialog;
+  let result = await invokeChatCompletion(prompt, { schema: KeyframesWithDialogSchema }) as KeyframesWithDialog;
   let retries = 0;
   const maxRetries = 3;
 
   while (retries < maxRetries) {
     // Validate dialog length for each scene
-    const invalidScenes = scenes.scenes.filter(scene => {
+    const currentScenes = [result.narratedScene, result.dialoguedScene];
+    const invalidScenes = currentScenes.filter(scene => {
       const wordCount = scene.dialog.trim().split(/\s+/).length;
       // Allow 5-20 words instead of strictly 10-15
       return wordCount < 5 || wordCount > 20 || !scene.dialog.trim();
@@ -301,7 +316,7 @@ export const generateKeyframeScenes = task("generate_keyframe_scenes", async (
     }
 
     console.log(`\nRetry ${retries + 1}: Some scenes had invalid dialog length. Current scenes:`);
-    scenes.scenes.forEach((scene, idx) => {
+    currentScenes.forEach((scene, idx) => {
       const wordCount = scene.dialog.trim().split(/\s+/).length;
       console.log(`Scene ${idx + 1} (${wordCount} words):`);
       console.log(`Character: ${scene.character.name} (${scene.character.role})`);
@@ -323,17 +338,17 @@ export const generateKeyframeScenes = task("generate_keyframe_scenes", async (
     }
 
     // Try generating again
-    scenes = await invokeChatCompletion(prompt, { schema: KeyframesWithDialogSchema }) as KeyframesWithDialog;
+    result = await invokeChatCompletion(prompt, { schema: KeyframesWithDialogSchema }) as KeyframesWithDialog;
   }
 
   // Update previously seen characters
-  scenes.scenes.forEach(scene => {
+  [result.narratedScene, result.dialoguedScene].forEach(scene => {
     scene.characters_in_scene.forEach(charName => {
       previouslySeenCharacters.add(charName);
     });
   });
 
-  return scenes;
+  return result;
 });
 
 // Main entrypoint
@@ -402,13 +417,18 @@ export const generateStory = entrypoint(
 
     // Handle image generation if enabled
     if (shouldGenerateImages) {
-      const sceneDescriptions = allScenes.flatMap((keyframeScenes: KeyframesWithDialog) =>
-        keyframeScenes.scenes.map((scene: KeyframeScene) => ({
-          description: scene.description,
-          characters_in_scene: scene.characters_in_scene,
-          title: scene.title
-        }))
-      );
+      const sceneDescriptions = allScenes.flatMap((keyframeScenes: KeyframesWithDialog) => [
+        {
+          description: keyframeScenes.narratedScene.description,
+          characters_in_scene: keyframeScenes.narratedScene.characters_in_scene,
+          title: keyframeScenes.narratedScene.title
+        },
+        {
+          description: keyframeScenes.dialoguedScene.description,
+          characters_in_scene: keyframeScenes.dialoguedScene.characters_in_scene,
+          title: keyframeScenes.dialoguedScene.title
+        }
+      ]);
 
       const optimizedPrompts = await optimizeLeonardoPrompts(
         sceneDescriptions,
@@ -419,35 +439,32 @@ export const generateStory = entrypoint(
       // Update scene descriptions with optimized prompts
       let promptIdx = 0;
       for (const keyframeScenes of allScenes) {
-        for (const scene of keyframeScenes.scenes) {
-          scene.leonardo_prompt = optimizedPrompts[promptIdx++];
-        }
+        keyframeScenes.narratedScene.leonardo_prompt = optimizedPrompts[promptIdx++];
+        keyframeScenes.dialoguedScene.leonardo_prompt = optimizedPrompts[promptIdx++];
       }
     }
 
     // Generate voiceovers if requested
     let voiceovers: KeyframeScene[] = [];
     if (shouldGenerateVoiceover) {
-      const voiceoverTasks = allScenes.flatMap((keyframeScenes: KeyframesWithDialog) =>
-        keyframeScenes.scenes.map((scene: KeyframeScene) => generateVoiceover(scene))
-      );
+      const voiceoverTasks = allScenes.flatMap((keyframeScenes: KeyframesWithDialog) => [
+        generateVoiceover(keyframeScenes.narratedScene),
+        generateVoiceover(keyframeScenes.dialoguedScene)
+      ]);
       voiceovers = await Promise.all(voiceoverTasks);
       
       // Update scenes with voiceover information
       for (let i = 0; i < allScenes.length; i++) {
-        for (let j = 0; j < allScenes[i].scenes.length; j++) {
-          const voiceoverIdx = i * 2 + j; // 2 scenes per keyframe
-          if (voiceoverIdx < voiceovers.length) {
-            allScenes[i].scenes[j] = voiceovers[voiceoverIdx];
-          }
-        }
+        const voiceoverIdx = i * 2;
+        allScenes[i].narratedScene = voiceovers[voiceoverIdx];
+        allScenes[i].dialoguedScene = voiceovers[voiceoverIdx + 1];
       }
     }
 
     // Combine results
-    const storyResults: StoryResult[0] = allScenes.map((scenes: KeyframesWithDialog, idx: number) => [
-      scenes.scenes[0].description,
-      scenes.scenes,
+    const storyResults: StoryResult[0] = allScenes.map((scenes: KeyframesWithDialog) => [
+      scenes.narratedScene.description,
+      [scenes.narratedScene, scenes.dialoguedScene],
       visualStyle,
       null // Remove the old audio buffer since we now store it in Mux
     ]);

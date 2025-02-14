@@ -111,5 +111,20 @@ export type Characters = z.infer<typeof charactersSchema>;
 export type VisualStyleResponse = z.infer<typeof visualStyleResponseSchema>;
 export type Keyframe = z.infer<typeof keyframeSchema>;
 export type KeyframeResponse = z.infer<typeof keyframeResponseSchema>;
-export type KeyframeScene = z.infer<typeof keyframeSceneSchema>;
-export type KeyframesWithDialog = z.infer<typeof keyframesWithDialogSchema>;
+export type KeyframeScene = {
+  title: string;
+  description: string;
+  characters_in_scene: string[];
+  character: Character;
+  dialog: string;
+  leonardo_prompt?: string;
+  audio?: {
+    muxUploadId: string;
+    muxUrl: string;
+  };
+};
+
+export type KeyframesWithDialog = {
+  narratedScene: KeyframeScene;
+  dialoguedScene: KeyframeScene;
+};

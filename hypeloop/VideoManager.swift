@@ -29,6 +29,9 @@ class VideoManager: ObservableObject {
     // Firestore instance
     internal let db = Firestore.firestore()
     
+    // Document listener
+    private var videoListener: ListenerRegistration?
+    
     init() async {
         print("📹 Initializing VideoManager")
         // Initialize players and the bloom filter.
@@ -82,5 +85,40 @@ class VideoManager: ObservableObject {
         await seenVideosFilter.reloadFromFirebase()
         videoStack = []
         await loadVideos(initial: true)
+    }
+    
+    func listenToVideoUpdates(videoId: String, completion: @escaping (VideoItem?) -> Void) {
+        // Remove any existing listener
+        videoListener?.remove()
+        
+        // Set up new listener
+        videoListener = db.collection("videos").document(videoId)
+            .addSnapshotListener { documentSnapshot, error in
+                guard let document = documentSnapshot else {
+                    print("Error fetching document: \(error?.localizedDescription ?? "Unknown error")")
+                    completion(nil)
+                    return
+                }
+                
+                guard document.exists else {
+                    print("Document does not exist")
+                    completion(nil)
+                    return
+                }
+                
+                do {
+                    let video = try document.data(as: VideoItem.self)
+                    completion(video)
+                } catch {
+                    print("Error decoding video: \(error.localizedDescription)")
+                    completion(nil)
+                }
+            }
+    }
+    
+    // Clean up listener when no longer needed
+    func removeVideoListener() {
+        videoListener?.remove()
+        videoListener = nil
     }
 }
