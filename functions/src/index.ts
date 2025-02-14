@@ -538,6 +538,20 @@ export const leonardoWebhook = onRequest(
             logger.info("Incremented scenesRendered for story", {
               storyId: motionData.storyId
             });
+
+            // Check if all scenes are rendered and update status if needed
+            const storyDoc = await storyRef.get();
+            const storyData = storyDoc.data();
+            if (storyData && storyData.scenesRendered >= storyData.sceneCount) {
+              await storyRef.update({
+                status: 'ready'
+              });
+              logger.info("Updated story status to completed", {
+                storyId: motionData.storyId,
+                scenesRendered: storyData.scenesRendered,
+                sceneCount: storyData.sceneCount
+              });
+            }
           } else {
             // Handle case where motion URL is missing
             await motionDoc.ref.update({

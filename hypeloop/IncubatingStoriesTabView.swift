@@ -9,6 +9,7 @@ import AVKit
 import FirebaseStorage
 import ImageIO
 import UIKit
+import Network
 
 struct MuxUploadResponse: Codable {
     let uploadUrl: String
@@ -52,6 +53,11 @@ struct IncubatingStory: Identifiable, Equatable {
     let status: String
     let scenesRendered: Int
     let sceneCount: Int
+    var isHatching: Bool = false
+    var hatchingProgress: String = ""
+    var isHatchingUpload: Bool = false
+    var isHatchingOptimizing: Bool = false
+    var hatchingUploadProgress: Double = 0
     
     static func == (lhs: IncubatingStory, rhs: IncubatingStory) -> Bool {
         lhs.id == rhs.id &&
@@ -60,7 +66,12 @@ struct IncubatingStory: Identifiable, Equatable {
         lhs.numKeyframes == rhs.numKeyframes &&
         lhs.status == rhs.status &&
         lhs.scenesRendered == rhs.scenesRendered &&
-        lhs.sceneCount == rhs.sceneCount
+        lhs.sceneCount == rhs.sceneCount &&
+        lhs.isHatching == rhs.isHatching &&
+        lhs.hatchingProgress == rhs.hatchingProgress &&
+        lhs.isHatchingUpload == rhs.isHatchingUpload &&
+        lhs.isHatchingOptimizing == rhs.isHatchingOptimizing &&
+        lhs.hatchingUploadProgress == rhs.hatchingUploadProgress
     }
 }
 
@@ -72,11 +83,6 @@ struct IncubatingStoryCard: View {
     let story: IncubatingStory
     @Binding var showAlert: Bool
     @Binding var alertMessage: String
-    @Binding var isHatching: Bool
-    @Binding var hatchingProgress: String
-    @Binding var isUploading: Bool
-    @Binding var isOptimizing: Bool
-    @Binding var uploadProgress: Double
     let onDelete: (String) -> Void
     let onHatch: (IncubatingStory, Bool) -> Void
     
@@ -114,9 +120,9 @@ struct IncubatingStoryCard: View {
                     .foregroundColor(.white)
                 
                 // Status text
-                Text("Incubating...")
+                Text(story.status == "ready" ? "Ready to hatch!" : "Incubating...")
                     .font(.system(size: 14))
-                    .foregroundColor(.white.opacity(0.8))
+                    .foregroundColor(story.status == "ready" ? .green : .white.opacity(0.8))
                 
                 // Keyframes info
                 Text("\(story.numKeyframes) keyframes")
@@ -129,22 +135,22 @@ struct IncubatingStoryCard: View {
                     .foregroundColor(.white.opacity(0.6))
                 
                 // Add hatching progress if active
-                if isHatching {
+                if story.isHatching {
                     VStack(spacing: 8) {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        Text(hatchingProgress)
+                        Text(story.hatchingProgress)
                             .font(.caption)
                             .foregroundColor(.white)
                     }
                 }
                 
-                if isUploading || isOptimizing {
+                if story.isHatchingUpload || story.isHatchingOptimizing {
                     VStack(spacing: 8) {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        Text(isUploading ? "Uploading \(Int(uploadProgress))%" :
-                             isOptimizing ? "Optimizing video..." : "")
+                        Text(story.isHatchingUpload ? "Uploading \(Int(story.hatchingUploadProgress))%" :
+                             story.isHatchingOptimizing ? "Optimizing video..." : "")
                             .font(.caption)
                             .foregroundColor(.white)
                     }
@@ -196,6 +202,26 @@ struct IncubatingStoryCard: View {
     }
 }
 
+// Add this class before IncubatingStoriesTabView
+class NetworkMonitor: ObservableObject {
+    private let monitor = NWPathMonitor()
+    private let queue = DispatchQueue(label: "NetworkMonitor")
+    @Published var isConnected = true
+    
+    init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            DispatchQueue.main.async {
+                self?.isConnected = path.status == .satisfied
+            }
+        }
+        monitor.start(queue: queue)
+    }
+    
+    deinit {
+        monitor.cancel()
+    }
+}
+
 struct IncubatingStoriesTabView: View {
     @StateObject private var authService = AuthService.shared
     @State private var incubatingStories: [IncubatingStory] = []
@@ -227,6 +253,7 @@ struct IncubatingStoriesTabView: View {
     @State private var storyGenerationResponse: String = ""
     @State private var useMotion = true
     @State private var numKeyframes: Int = 4
+    @State private var showSettingsSheet = false
     
     // Story merging states
     @State private var showingStoryPicker = false
@@ -240,6 +267,15 @@ struct IncubatingStoriesTabView: View {
     
     private let db = Firestore.firestore()
     private let functions = Functions.functions(region: "us-central1")
+    
+    // Add retry configuration
+    private let maxRetries = 3
+    private let retryDelay: TimeInterval = 2.0
+    
+    // Add network error state
+    @State private var showNetworkError = false
+    
+    @StateObject private var networkMonitor = NetworkMonitor()
     
     // MARK: - Helper Functions
     
@@ -347,10 +383,14 @@ struct IncubatingStoriesTabView: View {
         hatchingUploadProgress = 0
     }
     
-    private func uploadVideo(from videoURL: URL, description: String, isHatchingMode: Bool = false) async {
+    private func uploadVideo(from videoURL: URL, description: String, isHatchingMode: Bool = false, storyId: String? = nil) async {
         if isHatchingMode {
-            isHatchingOptimizing = true
-            hatchingUploadProgress = 0
+            if let storyId = storyId, let index = incubatingStories.firstIndex(where: { $0.id == storyId }) {
+                await MainActor.run {
+                    incubatingStories[index].isHatchingOptimizing = true
+                    incubatingStories[index].hatchingUploadProgress = 0
+                }
+            }
         } else {
             isOptimizing = true
             uploadProgress = 0
@@ -361,8 +401,12 @@ struct IncubatingStoriesTabView: View {
             let optimizedURL = try await optimizeVideo(from: videoURL)
             
             if isHatchingMode {
-                isHatchingOptimizing = false
-                isHatchingUpload = true
+                if let storyId = storyId, let index = incubatingStories.firstIndex(where: { $0.id == storyId }) {
+                    await MainActor.run {
+                        incubatingStories[index].isHatchingOptimizing = false
+                        incubatingStories[index].isHatchingUpload = true
+                    }
+                }
             } else {
                 isOptimizing = false
                 isUploading = true
@@ -403,7 +447,9 @@ struct IncubatingStoriesTabView: View {
             // Create a separate progress delegate for hatching uploads
             let progressDelegate = UploadProgressDelegate { progress in
                 if isHatchingMode {
-                    self.hatchingUploadProgress = progress
+                    if let storyId = storyId, let index = self.incubatingStories.firstIndex(where: { $0.id == storyId }) {
+                        self.incubatingStories[index].hatchingUploadProgress = progress
+                    }
                 } else {
                     self.uploadProgress = progress
                 }
@@ -457,17 +503,19 @@ struct IncubatingStoriesTabView: View {
     // MARK: - Story Generation Functions
     
     private func testStoryGeneration(numKeyframes: Int, isFullBuild: Bool) async throws -> String {
+        print("🚀 Starting testStoryGeneration - numKeyframes: \(numKeyframes), isFullBuild: \(isFullBuild)")
         isGeneratingStory = true
         
         guard let user = Auth.auth().currentUser else {
+            print("❌ Story generation failed: User not authenticated")
             alertMessage = "Please sign in to generate stories"
             isGeneratingStory = false
             showAlert = true
             throw NSError(domain: "StoryGeneration", code: -1, userInfo: [NSLocalizedDescriptionKey: "User not authenticated"])
         }
+        print("👤 User authenticated: \(user.uid)")
         
         let callable = functions.httpsCallable("generateStoryFunction")
-        
         let data: [String: Any] = [
             "keywords": ["magical forest", "lost child", "friendly dragon"],
             "config": [
@@ -481,20 +529,51 @@ struct IncubatingStoriesTabView: View {
             ]
         ]
         
+        print("📤 Calling Cloud Function with data:", data)
         let result = try await callable.call(data)
+        print("📥 Received response:", result.data)
         
         if let resultData = result.data as? [String: Any] {
             storyGenerationResponse = "Story generation successful: \(resultData)"
+            print("✅ Story generation successful, response:", resultData)
             
             if let storyId = resultData["storyId"] as? String {
-                alertMessage = "Story generation completed! Starting asset generation..."
-                showAlert = true
-                isGeneratingStory = false
-                return storyId
+                print("📝 Got storyId: \(storyId), updating Firestore...")
+                
+                let updateData: [String: Any] = [
+                    "status": "incubating",
+                    "creator": user.uid,
+                    "created_at": Int(Date().timeIntervalSince1970 * 1000),
+                    "num_keyframes": numKeyframes,
+                    "scenesRendered": 0
+                ]
+                print("📝 Firestore update data:", updateData)
+                
+                do {
+                    try await db.collection("stories").document(storyId).updateData(updateData)
+                    print("✅ Firestore update successful")
+                    
+                    print("⏳ Waiting for Firestore to update...")
+                    try? await Task.sleep(nanoseconds: UInt64(1 * 1_000_000_000))
+                    
+                    print("🔄 Refreshing stories list...")
+                    await loadIncubatingStories()
+                    
+                    alertMessage = "Story generation completed! Starting asset generation..."
+                    showAlert = true
+                    isGeneratingStory = false
+                    print("✅ Story generation process completed successfully")
+                    return storyId
+                } catch {
+                    print("❌ Firestore update failed:", error)
+                    throw error
+                }
             } else {
+                print("❌ Story ID not found in response")
                 throw NSError(domain: "StoryGeneration", code: -1, userInfo: [NSLocalizedDescriptionKey: "Story ID not found in response"])
             }
         } else {
+            print("❌ Unexpected response format")
             alertMessage = "Story generation completed but response format was unexpected"
             throw NSError(domain: "StoryGeneration", code: -1, userInfo: [NSLocalizedDescriptionKey: "Unexpected response format"])
         }
@@ -517,7 +596,7 @@ struct IncubatingStoriesTabView: View {
                 alertMessage = "Story assets merged successfully! The video has been saved to your Photos library."
                 
             case .upload:
-                await uploadVideo(from: stitchedURL, description: "Generated Story", isHatchingMode: true)
+                await uploadVideo(from: stitchedURL, description: "Generated Story", isHatchingMode: true, storyId: storyId)
                 alertMessage = "Story assets merged and uploaded successfully!"
             }
             
@@ -548,123 +627,163 @@ struct IncubatingStoriesTabView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 
-                ScrollView {
-                    VStack(spacing: 16) {
-                        // Creation Controls Section
-                        VStack(spacing: 12) {
-                            HStack(spacing: 12) {
-                                // Upload Video Button
-                                PhotosPicker(
-                                    selection: $selectedItem,
-                                    matching: .videos,
-                                    photoLibrary: .shared()
-                                ) {
-                                    VStack(spacing: 4) {
-                                        if isOptimizing || isUploading {
-                                            VStack(spacing: 4) {
-                                                if isOptimizing {
-                                                    Text("Optimizing...")
-                                                } else {
-                                                    Text("\(Int(uploadProgress))%")
-                                                }
-                                                ProgressView()
-                                                    .progressViewStyle(LinearProgressViewStyle())
-                                                    .frame(maxWidth: 100)
-                                            }
-                                        } else {
-                                            Image(systemName: "video.badge.plus")
-                                                .font(.system(size: 24))
-                                            Text("Upload")
-                                                .font(.caption)
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(Color(white: 0.15))
-                                    .cornerRadius(8)
-                                }
-                                .onChange(of: selectedItem) { newItem in
-                                    Task {
-                                        await handleVideoSelection(newItem)
-                                        if newItem != nil {
-                                            showDescriptionSheet = true
-                                        }
-                                    }
-                                }
-                                
-                                // Generate Story Button
-                                Button {
-                                    Task {
-                                        do {
-                                            selectedStoryId = try await testStoryGeneration(numKeyframes: numKeyframes, isFullBuild: true)
-                                        } catch {
-                                            alertMessage = error.localizedDescription
-                                            showAlert = true
-                                        }
-                                    }
-                                } label: {
-                                    VStack(spacing: 4) {
-                                        if isGeneratingStory || isLoadingStoryAssets {
-                                            VStack(spacing: 4) {
-                                                if isGeneratingStory {
-                                                    Text("Generating...")
-                                                } else {
-                                                    Text(storyMergeProgress)
-                                                }
-                                                ProgressView()
-                                                    .progressViewStyle(LinearProgressViewStyle())
-                                                    .frame(maxWidth: 100)
-                                            }
-                                        } else {
-                                            Image(systemName: "wand.and.stars")
-                                                .font(.system(size: 24))
-                                            Text("Generate")
-                                                .font(.caption)
-                                        }
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(Color(white: 0.15))
-                                    .cornerRadius(8)
-                                }
-                                .disabled(isGeneratingStory)
+                if !networkMonitor.isConnected {
+                    VStack {
+                        Image(systemName: "wifi.slash")
+                            .font(.system(size: 48))
+                            .foregroundColor(.gray)
+                        Text("No Internet Connection")
+                            .foregroundColor(.gray)
+                            .padding(.top)
+                        Button("Retry") {
+                            Task {
+                                await loadIncubatingStories()
                             }
                         }
-                        .padding(.horizontal)
-                        .padding(.top, 16)
-                        
-                        // Existing Grid View
-                        ContentGridView(
-                            items: incubatingStories,
-                            isLoading: isLoading,
-                            isLoadingMore: false,
-                            hasMoreContent: false,
-                            showAlert: $showAlert,
-                            alertMessage: $alertMessage,
-                            onLoadMore: {},
-                            cardBuilder: { story in
-                                IncubatingStoryCard(
-                                    story: story,
-                                    showAlert: $showAlert,
-                                    alertMessage: $alertMessage,
-                                    isHatching: $isHatching,
-                                    hatchingProgress: $hatchingProgress,
-                                    isUploading: $isHatchingUpload,
-                                    isOptimizing: $isHatchingOptimizing,
-                                    uploadProgress: $hatchingUploadProgress,
-                                    onDelete: { storyId in
-                                        Task {
-                                            await deleteStory(storyId)
+                        .padding()
+                        .background(Color(white: 0.15))
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                        .padding(.top)
+                    }
+                } else if showNetworkError {
+                    VStack {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 48))
+                            .foregroundColor(.yellow)
+                        Text("Connection Error")
+                            .foregroundColor(.gray)
+                            .padding(.top)
+                        Button("Retry") {
+                            Task {
+                                await loadIncubatingStories()
+                            }
+                        }
+                        .padding()
+                        .background(Color(white: 0.15))
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                        .padding(.top)
+                    }
+                } else {
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            // Creation Controls Section
+                            VStack(spacing: 12) {
+                                HStack(spacing: 12) {
+                                    // Upload Video Button
+                                    PhotosPicker(
+                                        selection: $selectedItem,
+                                        matching: .videos,
+                                        photoLibrary: .shared()
+                                    ) {
+                                        VStack(spacing: 4) {
+                                            if isOptimizing || isUploading {
+                                                VStack(spacing: 4) {
+                                                    if isOptimizing {
+                                                        Text("Optimizing...")
+                                                    } else {
+                                                        Text("\(Int(uploadProgress))%")
+                                                    }
+                                                    ProgressView()
+                                                        .progressViewStyle(LinearProgressViewStyle())
+                                                        .frame(maxWidth: 100)
+                                                }
+                                            } else {
+                                                Image(systemName: "video.badge.plus")
+                                                    .font(.system(size: 24))
+                                                Text("Upload")
+                                                    .font(.caption)
+                                            }
                                         }
-                                    },
-                                    onHatch: { story, shouldUpload in
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                        .background(Color(white: 0.15))
+                                        .cornerRadius(8)
+                                    }
+                                    .onChange(of: selectedItem) { newItem in
                                         Task {
-                                            await hatchStory(story, shouldUpload: shouldUpload)
+                                            await handleVideoSelection(newItem)
+                                            if newItem != nil {
+                                                showDescriptionSheet = true
+                                            }
                                         }
                                     }
-                                )
+                                    
+                                    // Generate Story Button
+                                    Button {
+                                        Task {
+                                            do {
+                                                selectedStoryId = try await testStoryGeneration(numKeyframes: numKeyframes, isFullBuild: true)
+                                            } catch {
+                                                alertMessage = error.localizedDescription
+                                                showAlert = true
+                                            }
+                                        }
+                                    } label: {
+                                        VStack(spacing: 4) {
+                                            if isGeneratingStory || isLoadingStoryAssets {
+                                                VStack(spacing: 4) {
+                                                    if isGeneratingStory {
+                                                        Text("Generating...")
+                                                    } else {
+                                                        Text(storyMergeProgress)
+                                                    }
+                                                    ProgressView()
+                                                        .progressViewStyle(LinearProgressViewStyle())
+                                                        .frame(maxWidth: 100)
+                                                }
+                                            } else {
+                                                Image(systemName: "wand.and.stars")
+                                                    .font(.system(size: 24))
+                                                Text("Generate")
+                                                    .font(.caption)
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                        .background(Color(white: 0.15))
+                                        .cornerRadius(8)
+                                    }
+                                    .disabled(isGeneratingStory)
+                                    
+                                    // Settings Button
+                                    Button {
+                                        showSettingsSheet = true
+                                    } label: {
+                                        VStack(spacing: 4) {
+                                            Image(systemName: "slider.horizontal.3")
+                                                .font(.system(size: 24))
+                                            Text("Settings")
+                                                .font(.caption)
+                                        }
+                                        .frame(width: 80)
+                                        .padding(.vertical, 12)
+                                        .background(Color(white: 0.15))
+                                        .cornerRadius(8)
+                                    }
+                                }
                             }
-                        )
+                            .padding(.horizontal)
+                            .padding(.top, 16)
+                            
+                            // Existing Grid View
+                            ContentGridView(
+                                items: incubatingStories,
+                                isLoading: isLoading,
+                                isLoadingMore: false,
+                                hasMoreContent: false,
+                                showAlert: $showAlert,
+                                alertMessage: $alertMessage,
+                                onLoadMore: {},
+                                cardBuilder: { story in
+                                    cardBuilder(story)
+                                }
+                            )
+                        }
+                    }
+                    .refreshable {
+                        await loadIncubatingStories()
                     }
                 }
             }
@@ -674,9 +793,6 @@ struct IncubatingStoriesTabView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbarBackground(Color.black, for: .navigationBar)
             .task {
-                await loadIncubatingStories()
-            }
-            .refreshable {
                 await loadIncubatingStories()
             }
             .alert("Upload Status", isPresented: $showAlert) {
@@ -731,71 +847,209 @@ struct IncubatingStoriesTabView: View {
                 }
                 .presentationDetents([.height(200)])
             }
+            .sheet(isPresented: $showSettingsSheet) {
+                NavigationView {
+                    ZStack {
+                        Color.black.ignoresSafeArea()
+                        
+                        VStack(spacing: 20) {
+                            HStack {
+                                Text("Number of Keyframes")
+                                    .foregroundColor(.white)
+                                Spacer()
+                                Stepper(
+                                    value: $numKeyframes,
+                                    in: 2...10,
+                                    step: 1
+                                ) {
+                                    Text("\(numKeyframes)")
+                                        .foregroundColor(.white)
+                                }
+                            }
+                            .padding()
+                            
+                            Spacer()
+                        }
+                    }
+                    .navigationTitle("Story Settings")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button("Done") {
+                                showSettingsSheet = false
+                            }
+                        }
+                    }
+                }
+                .presentationDetents([.height(200)])
+            }
+        }
+        .onChange(of: networkMonitor.isConnected) { isConnected in
+            if isConnected {
+                Task {
+                    await loadIncubatingStories()
+                }
+            }
         }
     }
     
     private func loadIncubatingStories() async {
-        guard let userId = Auth.auth().currentUser?.uid else { return }
+        print("🔄 Starting loadIncubatingStories")
+        guard let userId = Auth.auth().currentUser?.uid else {
+            print("❌ loadIncubatingStories failed: No authenticated user")
+            return
+        }
+        print("👤 Loading stories for user:", userId)
         
-        isLoading = true
-        do {
-            // Simpler query that doesn't require a composite index
-            let snapshot = try await db.collection("stories")
-                .whereField("creator", isEqualTo: userId)
-                .whereField("status", isEqualTo: "incubating")
-                .getDocuments()
-            
-            let stories = snapshot.documents.compactMap { document -> IncubatingStory? in
-                let data = document.data()
-                return IncubatingStory(
-                    id: document.documentID,
-                    creator: data["creator"] as? String ?? "",
-                    created_at: Double(data["created_at"] as? Int ?? 0),
-                    numKeyframes: data["num_keyframes"] as? Int ?? 0,
-                    status: data["status"] as? String ?? "",
-                    scenesRendered: data["scenesRendered"] as? Int ?? 0,
-                    sceneCount: data["sceneCount"] as? Int ?? 0
-                )
+        // Set loading state
+        await MainActor.run {
+            isLoading = true
+        }
+        
+        // Reset network error state
+        showNetworkError = false
+        
+        var retryCount = 0
+        while retryCount < maxRetries {
+            do {
+                print("📚 Querying Firestore - attempt \(retryCount + 1)/\(maxRetries)")
+                let query = db.collection("stories")
+                    .whereField("creator", isEqualTo: userId)
+                    .whereField("status", in: ["incubating", "ready"])
+                print("🔍 Query parameters - creator: \(userId), status: [incubating, ready]")
+                
+                let snapshot = try await query.getDocuments()
+                print("📥 Received \(snapshot.documents.count) documents")
+                
+                let stories = snapshot.documents.compactMap { document -> IncubatingStory? in
+                    let data = document.data()
+                    print("📄 Processing document \(document.documentID):")
+                    print("   Data:", data)
+                    
+                    return IncubatingStory(
+                        id: document.documentID,
+                        creator: data["creator"] as? String ?? "",
+                        created_at: Double(data["created_at"] as? Int ?? 0),
+                        numKeyframes: data["num_keyframes"] as? Int ?? 0,
+                        status: data["status"] as? String ?? "",
+                        scenesRendered: data["scenesRendered"] as? Int ?? 0,
+                        sceneCount: data["sceneCount"] as? Int ?? 0
+                    )
+                }
+                
+                let sortedStories = stories.sorted { $0.created_at > $1.created_at }
+                print("📊 Processed \(stories.count) valid stories")
+                
+                await MainActor.run {
+                    incubatingStories = sortedStories
+                    isLoading = false
+                }
+                print("✅ Stories loaded successfully")
+                return
+                
+            } catch {
+                print("❌ Firestore query failed - attempt \(retryCount + 1):", error)
+                retryCount += 1
+                if retryCount < maxRetries {
+                    print("⏳ Waiting \(retryDelay) seconds before retry...")
+                    try? await Task.sleep(nanoseconds: UInt64(retryDelay * 1_000_000_000))
+                } else {
+                    print("❌ All retry attempts failed")
+                    await MainActor.run {
+                        showNetworkError = true
+                        isLoading = false
+                    }
+                }
             }
-            
-            // Sort in memory
-            let sortedStories = stories.sorted { $0.created_at > $1.created_at }
-            
-            await MainActor.run {
-                incubatingStories = sortedStories
-                isLoading = false
-            }
-        } catch {
-            print("Error loading incubating stories: \(error.localizedDescription)")
-            isLoading = false
         }
     }
     
     private func deleteStory(_ storyId: String) async {
+        print("🗑 Attempting to delete story:", storyId)
         do {
-            try await db.collection("stories").document(storyId).delete()
+            // Update story status to deleted
+            try await db.collection("stories").document(storyId).updateData([
+                "status": "deleted",
+                "deleted_at": Int(Date().timeIntervalSince1970 * 1000)
+            ])
+            print("✅ Story marked as deleted")
+
+            // Mark associated assets as deleted
+            let batch = db.batch()
+
+            // Get and update images
+            let imagesQuery = db.collection("images").whereField("storyId", isEqualTo: storyId)
+            let imagesDocs = try await imagesQuery.getDocuments()
+            for doc in imagesDocs.documents {
+                batch.updateData([
+                    "status": "deleted",
+                    "deleted_at": Int(Date().timeIntervalSince1970 * 1000)
+                ], forDocument: doc.reference)
+            }
+
+            // Get and update motion videos
+            let motionQuery = db.collection("motion_videos").whereField("storyId", isEqualTo: storyId)
+            let motionDocs = try await motionQuery.getDocuments()
+            for doc in motionDocs.documents {
+                batch.updateData([
+                    "status": "deleted",
+                    "deleted_at": Int(Date().timeIntervalSince1970 * 1000)
+                ], forDocument: doc.reference)
+            }
+
+            // Get and update audio files
+            let audioQuery = db.collection("audio").whereField("storyId", isEqualTo: storyId)
+            let audioDocs = try await audioQuery.getDocuments()
+            for doc in audioDocs.documents {
+                batch.updateData([
+                    "status": "deleted",
+                    "deleted_at": Int(Date().timeIntervalSince1970 * 1000)
+                ], forDocument: doc.reference)
+            }
+
+            // Commit all the updates in one batch
+            try await batch.commit()
+            print("✅ Associated assets marked as deleted")
+
+            print("🔄 Refreshing stories list...")
             await loadIncubatingStories()
         } catch {
-            print("Error deleting story: \(error.localizedDescription)")
+            print("❌ Error deleting story:", error)
+            alertMessage = "Failed to delete story: \(error.localizedDescription)"
+            showAlert = true
         }
     }
     
     private func hatchStory(_ story: IncubatingStory, shouldUpload: Bool) async {
-        isHatching = true
-        hatchingProgress = "Loading story assets..."
+        // Update the story's hatching state
+        if let index = incubatingStories.firstIndex(where: { $0.id == story.id }) {
+            await MainActor.run {
+                incubatingStories[index].isHatching = true
+                incubatingStories[index].hatchingProgress = "Loading story assets..."
+            }
+        }
         
         do {
             let stitchedURL = try await VideoMerger.mergeStoryAssets(
                 storyId: story.id,
                 useMotion: true,
                 progressCallback: { message in
-                    hatchingProgress = message
+                    Task { @MainActor in
+                        if let index = incubatingStories.firstIndex(where: { $0.id == story.id }) {
+                            incubatingStories[index].hatchingProgress = message
+                        }
+                    }
                 }
             )
             
             if shouldUpload {
+                if let index = incubatingStories.firstIndex(where: { $0.id == story.id }) {
+                    await MainActor.run {
+                        incubatingStories[index].isHatchingOptimizing = true
+                    }
+                }
                 // Upload the stitched video with hatching flag
-                await uploadVideo(from: stitchedURL, description: "Hatched Story", isHatchingMode: true)
+                await uploadVideo(from: stitchedURL, description: "Hatched Story", isHatchingMode: true, storyId: story.id)
                 alertMessage = "Story hatched and uploaded successfully!"
             } else {
                 // Save to Photos library
@@ -809,11 +1063,59 @@ struct IncubatingStoriesTabView: View {
             // Clean up
             try? FileManager.default.removeItem(at: stitchedURL)
             
+            // Mark story as hatched in Firestore
+            try await db.collection("stories").document(story.id).updateData([
+                "status": "hatched",
+                "hatched_at": Int(Date().timeIntervalSince1970 * 1000)
+            ])
+            print("✅ Story marked as hatched")
+            
+            // Reset the story's hatching state
+            if let index = incubatingStories.firstIndex(where: { $0.id == story.id }) {
+                await MainActor.run {
+                    incubatingStories[index].isHatching = false
+                    incubatingStories[index].hatchingProgress = ""
+                    incubatingStories[index].isHatchingUpload = false
+                    incubatingStories[index].isHatchingOptimizing = false
+                    incubatingStories[index].hatchingUploadProgress = 0
+                }
+            }
+            
+            // Refresh the stories list to remove the hatched story
+            await loadIncubatingStories()
+            
         } catch {
             alertMessage = "Failed to hatch story: \(error.localizedDescription)"
-            resetHatchingState()
+            // Reset the story's hatching state on error
+            if let index = incubatingStories.firstIndex(where: { $0.id == story.id }) {
+                await MainActor.run {
+                    incubatingStories[index].isHatching = false
+                    incubatingStories[index].hatchingProgress = ""
+                    incubatingStories[index].isHatchingUpload = false
+                    incubatingStories[index].isHatchingOptimizing = false
+                    incubatingStories[index].hatchingUploadProgress = 0
+                }
+            }
         }
         
         showAlert = true
+    }
+    
+    private func cardBuilder(_ story: IncubatingStory) -> some View {
+        IncubatingStoryCard(
+            story: story,
+            showAlert: $showAlert,
+            alertMessage: $alertMessage,
+            onDelete: { storyId in
+                Task {
+                    await deleteStory(storyId)
+                }
+            },
+            onHatch: { story, shouldUpload in
+                Task {
+                    await hatchStory(story, shouldUpload: shouldUpload)
+                }
+            }
+        )
     }
 } 
