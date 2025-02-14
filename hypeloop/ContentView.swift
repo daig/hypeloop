@@ -52,8 +52,6 @@ struct ContentView: View {
                             SavedVideosTabView(videoManager: videoManager)
                         case 2:
                             IncubatingStoriesTabView()
-                        case 3:
-                            CreateTabView()
                         default:
                             HomeTabView(videoManager: videoManager)
                         }

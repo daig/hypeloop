@@ -64,7 +64,7 @@ struct NavigationBar: View {
                         logoutContextMenu()
                     }
                 
-                // Add egg tab
+                // Incubating tab with egg icon
                 NavigationButton(iconName: "circle.fill")
                     .onTapGesture { selectedTab = 2 }
                     .foregroundColor(selectedTab == 2 ? .white : .gray)
@@ -72,13 +72,6 @@ struct NavigationBar: View {
                         logoutContextMenu()
                     }
                     .scaleEffect(y: 1.2)  // Make it slightly taller to look more egg-like
-                
-                NavigationButton(iconName: "video.badge.plus")
-                    .onTapGesture { selectedTab = 3 }
-                    .foregroundColor(selectedTab == 3 ? .white : .gray)
-                    .contextMenu {
-                        logoutContextMenu()
-                    }
             }
             .padding(.vertical, 10)
             .padding(.bottom, 20)
