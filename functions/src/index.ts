@@ -190,9 +190,12 @@ export const muxWebhook = onRequest(
             const uploadId = event.data.upload_id;
 
             // Check if this is a video or audio asset
-            const isAudio = event.data.tracks?.some((track: any) => track.type === 'audio');
+            // More precise check: if it has video tracks, it's a video asset. If it only has audio tracks, it's an audio asset.
+            const hasVideoTracks = event.data.tracks?.some((track: any) => track.type === 'video');
+            const hasAudioTracks = event.data.tracks?.some((track: any) => track.type === 'audio');
+            const isAudioOnly = !hasVideoTracks && hasAudioTracks;
 
-            if (isAudio) {
+            if (isAudioOnly) {
                 // Get the input info to extract the download URL
                 const muxClient = getMuxClient();
                 const inputInfo = await muxClient.video.assets.retrieveInputInfo(assetId);
@@ -228,7 +231,7 @@ export const muxWebhook = onRequest(
                     playbackId,
                     downloadUrl
                 });
-            } else {
+            } else if (hasVideoTracks) {
                 // Handle video assets
                 const videoRef = db.collection('videos').doc(uploadId);
                 const videoDoc = await videoRef.get();
@@ -251,6 +254,14 @@ export const muxWebhook = onRequest(
                     assetId,
                     playbackId
                 });
+            } else {
+                logger.warn("Asset has neither video nor audio tracks", { 
+                    assetId,
+                    uploadId,
+                    tracks: event.data.tracks
+                });
+                res.status(400).json({ error: 'Invalid asset type' });
+                return;
             }
         }
 
@@ -259,10 +270,12 @@ export const muxWebhook = onRequest(
             const uploadId = event.data.upload_id;
             const error = event.data.errors?.messages?.[0] || 'Unknown error';
 
-            // Check if this is a video or audio asset
-            const isAudio = event.data.tracks?.some((track: any) => track.type === 'audio');
+            // Check if this is a video or audio asset using the same logic
+            const hasVideoTracks = event.data.tracks?.some((track: any) => track.type === 'video');
+            const hasAudioTracks = event.data.tracks?.some((track: any) => track.type === 'audio');
+            const isAudioOnly = !hasVideoTracks && hasAudioTracks;
 
-            if (isAudio) {
+            if (isAudioOnly) {
                 // Find the audio record by uploadId
                 const audioQuery = await db.collection('audio')
                     .where('uploadId', '==', uploadId)
@@ -289,24 +302,27 @@ export const muxWebhook = onRequest(
                     uploadId,
                     error
                 });
-            } else {
-                // Handle video errors (existing code)
-                const videosRef = db.collection('videos');
-                const videoQuery = await videosRef.where('uploadId', '==', uploadId).get();
+            } else if (hasVideoTracks) {
+                // Handle video errors
+                const videoRef = db.collection('videos').doc(uploadId);
+                const videoDoc = await videoRef.get();
 
-                if (!videoQuery.empty) {
-                    const videoDoc = videoQuery.docs[0];
-                    await videoDoc.ref.update({
-                        status: 'error',
-                        error: error,
-                        updatedAt: new Date().toISOString()
-                    });
-
-                    logger.error("Video processing failed", {
-                        docId: videoDoc.id,
-                        error
-                    });
+                if (!videoDoc.exists) {
+                    logger.error("No video found with ID", { uploadId });
+                    res.status(404).json({ error: 'Video not found' });
+                    return;
                 }
+
+                await videoRef.update({
+                    status: 'error',
+                    error: error,
+                    updated_at: new Date().toISOString()
+                });
+
+                logger.error("Video processing failed", {
+                    docId: videoDoc.id,
+                    error
+                });
             }
         }
 

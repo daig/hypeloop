@@ -38,7 +38,7 @@ struct FileOperationsView: View {
             // Test Story Generation Section
             VStack(spacing: 12) {
                 Toggle(isOn: $isFullBuild) {
-                    Text("Full Build")
+                    Text("Use Motion Videos")
                         .foregroundColor(.white)
                 }
                 .tint(.blue)
@@ -62,7 +62,7 @@ struct FileOperationsView: View {
                                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
                         } else {
                             Image(systemName: "wand.and.stars")
-                            Text(isFullBuild ? "Generate Full Story" : "Test Story Generation")
+                            Text(isFullBuild ? "Generate Story with Motion" : "Generate Story (Static)")
                         }
                     }
                     .frame(maxWidth: .infinity)

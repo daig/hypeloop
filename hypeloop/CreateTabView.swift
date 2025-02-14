@@ -18,6 +18,11 @@ struct MuxUploadResponse: Codable {
     let fileSize: Int
 }
 
+enum StoryOutputDestination {
+    case photos
+    case upload  // For future implementation
+}
+
 class UploadProgressDelegate: NSObject, URLSessionTaskDelegate {
     var onProgress: (Double) -> Void
     
@@ -40,18 +45,21 @@ class UploadProgressDelegate: NSObject, URLSessionTaskDelegate {
 }
 
 struct CreateTabView: View {
-    @State private var selectedItem: PhotosPickerItem? = nil
-    @State private var selectedVideoURL: URL? = nil
-    @State private var description: String = ""
-    @State private var isUploading = false
+
+    // Upload progress states
     @State private var isOptimizing = false
     @State private var uploadProgress: Double = 0.0
-    @State private var showAlert = false
-    @State private var alertMessage = ""
-    @State private var uploadComplete = false
-    @State private var currentUploadId: String? = nil
-    @State private var isLoadingVideo = false
     @FocusState private var isDescriptionFocused: Bool
+    @State private var isUploading = false
+    @State private var uploadComplete = false
+    @State private var alertMessage = ""
+    @State private var showAlert = false
+
+    @State private var selectedVideoURL: URL? = nil
+
+    @State private var selectedItem: PhotosPickerItem? = nil
+    @State private var description: String = ""
+    @State private var isLoadingVideo = false
     
     // Story generation test states
     @State private var isGeneratingStory = false
@@ -80,6 +88,7 @@ struct CreateTabView: View {
     @State private var selectedStoryId: String? = nil
     @State private var isLoadingStoryAssets = false
     @State private var storyMergeProgress: String = ""
+    @State private var shouldUpload = false  // Add this state variable
     
     // Shared instances
     private let functions = Functions.functions(region: "us-central1")
@@ -120,9 +129,10 @@ struct CreateTabView: View {
                     selectedStoryId: $selectedStoryId,
                     isLoadingStoryAssets: $isLoadingStoryAssets,
                     storyMergeProgress: $storyMergeProgress,
+                    shouldUpload: $shouldUpload,  // Add this binding
                     onMergeStoryAssets: { useMotion in
                         Task {
-                            await mergeStoryAssets(useMotion: useMotion)
+                            await mergeStoryAssets(useMotion: useMotion, outputTo: shouldUpload ? .upload : .photos)
                         }
                     }
                 )
@@ -192,7 +202,6 @@ struct CreateTabView: View {
         uploadProgress = 0
         isUploading = false
         uploadComplete = false
-        currentUploadId = nil
         isLoadingVideo = true  // Set loading state before processing
         
         if let newItem = newItem {
@@ -298,7 +307,10 @@ struct CreateTabView: View {
     
     private func uploadVideo() async {
         guard let videoURL = selectedVideoURL else { return }
-        
+        await uploadVideo(from: videoURL, description: description)
+    }
+    
+    private func uploadVideo(from videoURL: URL, description: String) async {
         isOptimizing = true
         uploadProgress = 0
         isDescriptionFocused = false  // Dismiss keyboard first, but keep the text
@@ -321,7 +333,6 @@ struct CreateTabView: View {
             )
             
             print("Got Mux upload ID: \(muxResponse.uploadId)")
-            currentUploadId = muxResponse.uploadId
             
             // Create initial Firestore document
             let user = Auth.auth().currentUser!
@@ -353,7 +364,7 @@ struct CreateTabView: View {
                 "id": muxResponse.uploadId,
                 "creator": uid,
                 "display_name": displayName,
-                "description": description,  // Use the description before clearing it
+                "description": description,
                 "created_at": Int(Date().timeIntervalSince1970 * 1000), // Convert to milliseconds as integer
                 "status": "uploading"
             ])
@@ -362,9 +373,7 @@ struct CreateTabView: View {
             try await uploadToMux(videoURL: optimizedURL, uploadURL: muxResponse.uploadUrl)
             
             // Update video status
-            if let uploadId = currentUploadId {
-                await updateVideoStatus(assetId: uploadId, playbackId: uploadId)
-            }
+            await updateVideoStatus(assetId: muxResponse.uploadId)
             
             // Clean up temporary files
             try? FileManager.default.removeItem(at: optimizedURL)
@@ -373,7 +382,7 @@ struct CreateTabView: View {
             isUploading = false
             uploadProgress = 0
             uploadComplete = true
-            description = ""  // Clear description after successful upload
+            self.description = ""  // Clear description after successful upload
             selectedVideoURL = nil  // Remove video but keep success state
             
         } catch {
@@ -385,7 +394,7 @@ struct CreateTabView: View {
         }
     }
     
-    private func updateVideoStatus(assetId: String, playbackId: String) async {
+    private func updateVideoStatus(assetId: String) async {
         do {
             try await db.collection("videos").document(assetId).updateData([
                 "status": "uploading"
@@ -757,7 +766,7 @@ struct CreateTabView: View {
                         selectedStoryId = storyId
                         alertMessage = "Starting to merge story assets..."
                         showAlert = true
-                        await mergeStoryAssets(useMotion: true)
+                        await mergeStoryAssets(useMotion: isFullBuild)
                     }
                 } else {
                     alertMessage = "Full story generation started but couldn't get story ID"
@@ -779,199 +788,31 @@ struct CreateTabView: View {
         showAlert = true
     }
     
-    private func mergeStoryAssets(useMotion: Bool) async {
+    private func mergeStoryAssets(useMotion: Bool, outputTo destination: StoryOutputDestination = .photos) async {
         guard let storyId = selectedStoryId else { return }
         isLoadingStoryAssets = true
         storyMergeProgress = "Loading story assets..."
-        print("🎬 Starting merge process for story: \(storyId)")
-        print("🎥 Using \(useMotion ? "motion videos" : "static images")")
         
         do {
-            // Get all audio and image assets for this story
-            let audioQuery = db.collection("audio").whereField("storyId", isEqualTo: storyId)
-            let imageQuery = db.collection("images").whereField("storyId", isEqualTo: storyId)
-            
-            let audioSnapshot = try await audioQuery.getDocuments()
-            let imageSnapshot = try await imageQuery.getDocuments()
-            
-            print("�� Found\(audioSnapshot.documents.count) audio files and \(imageSnapshot.documents.count) images")
-            
-            // Sort assets by sceneNumber
-            let audioAssets = audioSnapshot.documents
-                .compactMap { doc -> (sceneNumber: Int, downloadUrl: String?)? in
-                    let data = doc.data()
-                    guard let sceneNumber = data["sceneNumber"] as? Int else { return nil }
-                    let downloadUrl = data["download_url"] as? String
-                    return (sceneNumber, downloadUrl)
+            let stitchedURL = try await mergeStoryAssets(storyId: storyId, useMotion: useMotion)
+
+            switch destination {
+            case .photos:
+                // Save to Photos library
+                try await PHPhotoLibrary.shared().performChanges {
+                    let request = PHAssetCreationRequest.forAsset()
+                    request.addResource(with: .video, fileURL: stitchedURL, options: nil)
                 }
-                .sorted { $0.sceneNumber < $1.sceneNumber }
-            
-            let imageAssets = imageSnapshot.documents
-                .compactMap { doc -> (sceneNumber: Int, url: String, motion: Bool, motionUrl: String?)? in
-                    let data = doc.data()
-                    guard let sceneNumber = data["sceneNumber"] as? Int,
-                          let url = data["url"] as? String else { return nil }
-                    let motion = data["motion"] as? Bool ?? false
-                    let motionUrl = data["motion_url"] as? String
-                    return (sceneNumber, url, motion, motionUrl)
-                }
-                .sorted { $0.sceneNumber < $1.sceneNumber }
-            
-            print("🔄 Processing:")
-            print("🎵 Audio assets: \(audioAssets.map { $0.sceneNumber })")
-            print("🖼️ Image assets: \(imageAssets.map { $0.sceneNumber })")
-            
-            // Create temporary directory for downloaded files
-            let tempDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            
-            // Download all assets
-            var pairs: [(videoURL: URL, audioURL: URL)] = []
-            var downloadedAudioFiles: Set<Int> = []
-            var downloadedVideoFiles: Set<Int> = []
-            
-            // Download audio files
-            for asset in audioAssets {
-                storyMergeProgress = "Downloading audio \(asset.sceneNumber + 1) of \(audioAssets.count)..."
-                let audioURL = tempDir.appendingPathComponent("audio_\(asset.sceneNumber).mp3")
+                alertMessage = "Story assets merged successfully! The video has been saved to your Photos library."
                 
-                guard let downloadUrl = asset.downloadUrl else {
-                    print("⚠️ No download URL for scene \(asset.sceneNumber)")
-                    continue
-                }
-                
-                do {
-                    let (audioData, _) = try await URLSession.shared.data(from: URL(string: downloadUrl)!)
-                    try audioData.write(to: audioURL)
-                    downloadedAudioFiles.insert(asset.sceneNumber)
-                    print("✅ Downloaded audio for scene \(asset.sceneNumber)")
-                } catch {
-                    print("❌ Error downloading audio for scene \(asset.sceneNumber): \(error)")
-                    continue
-                }
-            }
-            
-            // Get all motion videos for this story at once
-            let motionVideosQuery = db.collection("motion_videos")
-                .whereField("storyId", isEqualTo: storyId)
-                .whereField("status", isEqualTo: "ready")  // Only get ready videos
-            print("🔍 Querying motion_videos with storyId: \(storyId)")
-            let motionVideosSnapshot = try await motionVideosQuery.getDocuments()
-            print("📄 Raw motion_videos documents:")
-            for doc in motionVideosSnapshot.documents {
-                print("   Document ID: \(doc.documentID)")
-                print("   Data: \(doc.data())")
-            }
-            
-            // Create a dictionary mapping scene numbers to motion video data
-            let motionVideosByScene = Dictionary(
-                uniqueKeysWithValues: motionVideosSnapshot.documents.compactMap { doc -> (Int, String)? in
-                    let data = doc.data()
-                    guard let sceneNumber = data["sceneNumber"] as? Int,
-                          let status = data["status"] as? String,
-                          status == "ready",
-                          let playbackId = data["playbackId"] as? String else {
-                        print("⚠️ Skipping document \(doc.documentID) - Status: \(data["status"] ?? "unknown")")
-                        print("   Data: \(data)")
-                        return nil
-                    }
-                    print("🔍 Found ready motion video - Scene: \(sceneNumber), PlaybackID: \(playbackId)")
-                    return (sceneNumber, playbackId)
-                }
-            )
-            
-            print("🎥 Found \(motionVideosByScene.count) motion videos")
-            print("📋 Motion videos available for scenes: \(Array(motionVideosByScene.keys).sorted())")
-            
-            // Download and process image/video files
-            for asset in imageAssets {
-                storyMergeProgress = "Processing scene \(asset.sceneNumber + 1) of \(imageAssets.count)..."
-                
-                do {
-                    let videoURL: URL
-                    
-                    if useMotion && asset.motion {
-                        print("🔎 Looking for motion video for scene \(asset.sceneNumber)")
-                        print("   Available scenes: \(Array(motionVideosByScene.keys).sorted())")
-                        // Check if we have a motion video for this scene
-                        if let playbackId = motionVideosByScene[asset.sceneNumber] {
-                            print("🎥 Found motion video playback ID: \(playbackId) for scene \(asset.sceneNumber)")
-                            
-                            // Download the motion video to local storage first
-                            let tempDir = FileManager.default.temporaryDirectory
-                            let localVideoURL = tempDir.appendingPathComponent("motion_video_\(asset.sceneNumber).mp4")
-                            
-                            print("📥 Downloading motion video to: \(localVideoURL)")
-                            let (downloadedData, _) = try await URLSession.shared.data(from: URL(string: playbackId)!)
-                            try downloadedData.write(to: localVideoURL)
-                            
-                            videoURL = localVideoURL
-                            print("✅ Downloaded and saved motion video for scene \(asset.sceneNumber)")
-                        } else {
-                            print("⚠️ Motion video not found for scene \(asset.sceneNumber)")
-                            print("   Checked dictionary key: \(asset.sceneNumber)")
-                            print("   Available keys: \(Array(motionVideosByScene.keys).sorted())")
-                            print("   Falling back to static image")
-                            guard let downloadURL = URL(string: asset.url) else {
-                                print("⚠️ Invalid image URL for scene \(asset.sceneNumber)")
-                                continue
-                            }
-                            let (imageData, _) = try await URLSession.shared.data(from: downloadURL)
-                            videoURL = try await createVideoFromImage(imageData: imageData)
-                            print("✅ Created video from static image for scene \(asset.sceneNumber)")
-                        }
-                    } else {
-                        // Use static image
-                        print("🖼️ Using static image for scene \(asset.sceneNumber)")
-                        guard let downloadURL = URL(string: asset.url) else {
-                            print("⚠️ Invalid image URL for scene \(asset.sceneNumber)")
-                            continue
-                        }
-                        let (imageData, _) = try await URLSession.shared.data(from: downloadURL)
-                        videoURL = try await createVideoFromImage(imageData: imageData)
-                        print("✅ Created video from static image for scene \(asset.sceneNumber)")
-                    }
-                    
-                    downloadedVideoFiles.insert(asset.sceneNumber)
-                    
-                    // Check if we have both audio and video for this scene
-                    if downloadedAudioFiles.contains(asset.sceneNumber) {
-                        let audioURL = tempDir.appendingPathComponent("audio_\(asset.sceneNumber).mp3")
-                        if FileManager.default.fileExists(atPath: audioURL.path) {
-                            pairs.append((videoURL: videoURL, audioURL: audioURL))
-                            print("🔗 Created pair for scene \(asset.sceneNumber)")
-                        }
-                    }
-                } catch {
-                    print("❌ Error processing scene \(asset.sceneNumber): \(error)")
-                    continue
-                }
-            }
-            
-            if pairs.isEmpty {
-                throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "No valid pairs found to merge"])
-            }
-            
-            // Process pairs and stitch them together
-            storyMergeProgress = "Merging assets..."
-            let outputURL = tempDir.appendingPathComponent("final_\(UUID().uuidString).mp4")
-            
-            let stitchedURL = try await VideoMerger.processPairsAndStitch(
-                pairs: pairs,
-                outputURL: outputURL
-            )
-            
-            // Save to Photos library
-            try await PHPhotoLibrary.shared().performChanges {
-                let request = PHAssetCreationRequest.forAsset()
-                request.addResource(with: .video, fileURL: stitchedURL, options: nil)
+            case .upload:
+                // Upload the stitched video
+                await uploadVideo(from: stitchedURL, description: "Generated Story")
+                alertMessage = "Story assets merged and uploaded successfully!"
             }
             
             // Clean up
-            try FileManager.default.removeItem(at: tempDir)
-            
-            alertMessage = "Story assets merged successfully! The video has been saved to your Photos library."
+            try? FileManager.default.removeItem(at: stitchedURL)
             selectedStoryId = nil
             
         } catch {
@@ -981,6 +822,196 @@ struct CreateTabView: View {
         showAlert = true
         isLoadingStoryAssets = false
         storyMergeProgress = ""
+    }
+    
+    private func mergeStoryAssets(storyId: String, useMotion: Bool) async throws -> URL {
+        print("🎬 Starting merge process for story: \(storyId)")
+        print("🎥 Using \(useMotion ? "motion videos" : "static images")")
+        
+        // Get all audio and image assets for this story
+        let audioQuery = db.collection("audio").whereField("storyId", isEqualTo: storyId)
+        let imageQuery = db.collection("images").whereField("storyId", isEqualTo: storyId)
+        
+        let audioSnapshot = try await audioQuery.getDocuments()
+        let imageSnapshot = try await imageQuery.getDocuments()
+        
+        print(" Found\(audioSnapshot.documents.count) audio files and \(imageSnapshot.documents.count) images")
+        
+        // Sort assets by sceneNumber
+        let audioAssets = audioSnapshot.documents
+            .compactMap { doc -> (sceneNumber: Int, downloadUrl: String?)? in
+                let data = doc.data()
+                guard let sceneNumber = data["sceneNumber"] as? Int else { return nil }
+                let downloadUrl = data["download_url"] as? String
+                return (sceneNumber, downloadUrl)
+            }
+            .sorted { $0.sceneNumber < $1.sceneNumber }
+        
+        let imageAssets = imageSnapshot.documents
+            .compactMap { doc -> (sceneNumber: Int, url: String, motion: Bool, motionUrl: String?)? in
+                let data = doc.data()
+                guard let sceneNumber = data["sceneNumber"] as? Int,
+                      let url = data["url"] as? String else { return nil }
+                let motion = data["motion"] as? Bool ?? false
+                let motionUrl = data["motion_url"] as? String
+                return (sceneNumber, url, motion, motionUrl)
+            }
+            .sorted { $0.sceneNumber < $1.sceneNumber }
+        
+        print("🔄 Processing:")
+        print("🎵 Audio assets: \(audioAssets.map { $0.sceneNumber })")
+        print("🖼️ Image assets: \(imageAssets.map { $0.sceneNumber })")
+        
+        // Create temporary directory for downloaded files
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        
+        // Download all assets
+        var pairs: [(videoURL: URL, audioURL: URL)] = []
+        var downloadedAudioFiles: Set<Int> = []
+        var downloadedVideoFiles: Set<Int> = []
+        
+        // Download audio files
+        for asset in audioAssets {
+            storyMergeProgress = "Downloading audio \(asset.sceneNumber + 1) of \(audioAssets.count)..."
+            let audioURL = tempDir.appendingPathComponent("audio_\(asset.sceneNumber).mp3")
+            
+            guard let downloadUrl = asset.downloadUrl else {
+                print("⚠️ No download URL for scene \(asset.sceneNumber)")
+                continue
+            }
+            
+            do {
+                let (audioData, _) = try await URLSession.shared.data(from: URL(string: downloadUrl)!)
+                try audioData.write(to: audioURL)
+                downloadedAudioFiles.insert(asset.sceneNumber)
+                print("✅ Downloaded audio for scene \(asset.sceneNumber)")
+            } catch {
+                print("❌ Error downloading audio for scene \(asset.sceneNumber): \(error)")
+                continue
+            }
+        }
+        
+        // Get all motion videos for this story at once
+        let motionVideosQuery = db.collection("motion_videos")
+            .whereField("storyId", isEqualTo: storyId)
+            .whereField("status", isEqualTo: "ready")  // Only get ready videos
+        print("🔍 Querying motion_videos with storyId: \(storyId)")
+        let motionVideosSnapshot = try await motionVideosQuery.getDocuments()
+        print("📄 Raw motion_videos documents:")
+        for doc in motionVideosSnapshot.documents {
+            print("   Document ID: \(doc.documentID)")
+            print("   Data: \(doc.data())")
+        }
+        
+        // Create a dictionary mapping scene numbers to motion video data
+        let motionVideosByScene = Dictionary(
+            uniqueKeysWithValues: motionVideosSnapshot.documents.compactMap { doc -> (Int, String)? in
+                let data = doc.data()
+                guard let sceneNumber = data["sceneNumber"] as? Int,
+                      let status = data["status"] as? String,
+                      status == "ready",
+                      let playbackId = data["playbackId"] as? String else {
+                    print("⚠️ Skipping document \(doc.documentID) - Status: \(data["status"] ?? "unknown")")
+                    print("   Data: \(data)")
+                    return nil
+                }
+                print("🔍 Found ready motion video - Scene: \(sceneNumber), PlaybackID: \(playbackId)")
+                return (sceneNumber, playbackId)
+            }
+        )
+        
+        print("🎥 Found \(motionVideosByScene.count) motion videos")
+        print("📋 Motion videos available for scenes: \(Array(motionVideosByScene.keys).sorted())")
+        
+        // Download and process image/video files
+        for asset in imageAssets {
+            storyMergeProgress = "Processing scene \(asset.sceneNumber + 1) of \(imageAssets.count)..."
+            
+            do {
+                let videoURL: URL
+                
+                if useMotion && asset.motion {
+                    print("🔎 Looking for motion video for scene \(asset.sceneNumber)")
+                    print("   Available scenes: \(Array(motionVideosByScene.keys).sorted())")
+                    // Check if we have a motion video for this scene
+                    if let playbackId = motionVideosByScene[asset.sceneNumber] {
+                        print("🎥 Found motion video playback ID: \(playbackId) for scene \(asset.sceneNumber)")
+                        
+                        // Download the motion video to local storage first
+                        let tempDir = FileManager.default.temporaryDirectory
+                        let localVideoURL = tempDir.appendingPathComponent("motion_video_\(asset.sceneNumber).mp4")
+                        
+                        print("📥 Downloading motion video to: \(localVideoURL)")
+                        let (downloadedData, _) = try await URLSession.shared.data(from: URL(string: playbackId)!)
+                        try downloadedData.write(to: localVideoURL)
+                        
+                        videoURL = localVideoURL
+                        print("✅ Downloaded and saved motion video for scene \(asset.sceneNumber)")
+                    } else {
+                        print("⚠️ Motion video not found for scene \(asset.sceneNumber)")
+                        print("   Checked dictionary key: \(asset.sceneNumber)")
+                        print("   Available keys: \(Array(motionVideosByScene.keys).sorted())")
+                        print("   Falling back to static image")
+                        guard let downloadURL = URL(string: asset.url) else {
+                            print("⚠️ Invalid image URL for scene \(asset.sceneNumber)")
+                            continue
+                        }
+                        let (imageData, _) = try await URLSession.shared.data(from: downloadURL)
+                        videoURL = try await createVideoFromImage(imageData: imageData)
+                        print("✅ Created video from static image for scene \(asset.sceneNumber)")
+                    }
+                } else {
+                    // Use static image
+                    print("🖼️ Using static image for scene \(asset.sceneNumber)")
+                    guard let downloadURL = URL(string: asset.url) else {
+                        print("⚠️ Invalid image URL for scene \(asset.sceneNumber)")
+                        continue
+                    }
+                    let (imageData, _) = try await URLSession.shared.data(from: downloadURL)
+                    videoURL = try await createVideoFromImage(imageData: imageData)
+                    print("✅ Created video from static image for scene \(asset.sceneNumber)")
+                }
+                
+                downloadedVideoFiles.insert(asset.sceneNumber)
+                
+                // Check if we have both audio and video for this scene
+                if downloadedAudioFiles.contains(asset.sceneNumber) {
+                    let audioURL = tempDir.appendingPathComponent("audio_\(asset.sceneNumber).mp3")
+                    if FileManager.default.fileExists(atPath: audioURL.path) {
+                        pairs.append((videoURL: videoURL, audioURL: audioURL))
+                        print("🔗 Created pair for scene \(asset.sceneNumber)")
+                    }
+                }
+            } catch {
+                print("❌ Error processing scene \(asset.sceneNumber): \(error)")
+                continue
+            }
+        }
+        
+        if pairs.isEmpty {
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "No valid pairs found to merge"])
+        }
+        
+        // Process pairs and stitch them together
+        storyMergeProgress = "Merging assets..."
+        let outputURL = tempDir.appendingPathComponent("final_\(UUID().uuidString).mp4")
+        
+        let stitchedURL = try await VideoMerger.processPairsAndStitch(
+            pairs: pairs,
+            outputURL: outputURL
+        )
+        
+        // Clean up temporary directory except for the final stitched video
+        let enumerator = FileManager.default.enumerator(at: tempDir, includingPropertiesForKeys: nil)
+        while let url = enumerator?.nextObject() as? URL {
+            if url != stitchedURL {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+        
+        return stitchedURL
     }
     
     private func createVideoFromImage(imageData: Data, duration: Double = 3.0) async throws -> URL {

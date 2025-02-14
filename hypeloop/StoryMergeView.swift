@@ -5,6 +5,7 @@ struct StoryMergeView: View {
     @Binding var selectedStoryId: String?
     @Binding var isLoadingStoryAssets: Bool
     @Binding var storyMergeProgress: String
+    @Binding var shouldUpload: Bool  // Change from @State to @Binding
     @State private var useMotion: Bool = true  // Default to true for motion files
     
     let onMergeStoryAssets: (Bool) async -> Void  // Updated to take useMotion parameter
@@ -46,6 +47,16 @@ struct StoryMergeView: View {
                     HStack {
                         Image(systemName: useMotion ? "video.fill" : "photo.fill")
                         Text(useMotion ? "Use Motion Videos" : "Use Static Images")
+                    }
+                    .foregroundColor(.white)
+                }
+                .tint(.blue)
+                .padding(.horizontal)
+                
+                Toggle(isOn: $shouldUpload) {
+                    HStack {
+                        Image(systemName: shouldUpload ? "icloud.and.arrow.up.fill" : "photo.fill")
+                        Text(shouldUpload ? "Upload Video" : "Save to Photos")
                     }
                     .foregroundColor(.white)
                 }
