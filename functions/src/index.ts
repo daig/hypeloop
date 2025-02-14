@@ -12,7 +12,7 @@ import * as logger from "firebase-functions/logger";
 import Mux from "@mux/mux-node";
 import crypto from "crypto";
 import { initializeApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { createCanvas, CanvasRenderingContext2D } from 'canvas';
 import GIFEncoder from 'gifencoder';
 import { generateStory } from './story_generator.js';
@@ -528,6 +528,16 @@ export const leonardoWebhook = onRequest(
               sceneNumber: motionData.sceneNumber,
               url: motionMP4URL
             });
+
+            // Increment scenesRendered in the story document
+            const storyRef = db.collection('stories').doc(motionData.storyId);
+            await storyRef.update({
+              scenesRendered: FieldValue.increment(1)
+            });
+
+            logger.info("Incremented scenesRendered for story", {
+              storyId: motionData.storyId
+            });
           } else {
             // Handle case where motion URL is missing
             await motionDoc.ref.update({
@@ -972,7 +982,8 @@ export const generateStoryFunction = onCall({
       sceneCount,
       script,  // Store the original script string
       created_at: new Date().toISOString(),
-      status: 'completed'
+      status: 'completed',
+      scenesRendered: 0  // Initialize counter for rendered motion videos
     });
 
     // Initialize Leonardo API if image generation is enabled

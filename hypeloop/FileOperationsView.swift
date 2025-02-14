@@ -9,11 +9,12 @@ struct FileOperationsView: View {
     @Binding var sandboxAudioURL: URL?
     @Binding var isMerging: Bool
     @Binding var isGeneratingStory: Bool
-    @Binding var isFullBuild: Bool
+    @Binding var useMotion: Bool
     @Binding var numKeyframes: Int
+    @State private var shouldUpload: Bool = false
     
     let onMergeFiles: () async -> Void
-    let onTestStoryGeneration: () async -> Void
+    let onTestStoryGeneration: (Int, Bool, Bool) async -> Void
     let onProcessFolderSelection: (Result<[URL], Error>) async -> Void
     
     var body: some View {
@@ -37,9 +38,22 @@ struct FileOperationsView: View {
             
             // Test Story Generation Section
             VStack(spacing: 12) {
-                Toggle(isOn: $isFullBuild) {
-                    Text("Use Motion Videos")
-                        .foregroundColor(.white)
+                Toggle(isOn: $useMotion) {
+                    HStack {
+                        Image(systemName: useMotion ? "video.fill" : "photo.fill")
+                        Text(useMotion ? "Use Motion Videos" : "Use Static Images")
+                    }
+                    .foregroundColor(.white)
+                }
+                .tint(.blue)
+                .padding(.horizontal)
+
+                Toggle(isOn: $shouldUpload) {
+                    HStack {
+                        Image(systemName: shouldUpload ? "icloud.and.arrow.up.fill" : "photo.fill")
+                        Text(shouldUpload ? "Upload Video" : "Save to Photos")
+                    }
+                    .foregroundColor(.white)
                 }
                 .tint(.blue)
                 .padding(.horizontal)
@@ -55,14 +69,17 @@ struct FileOperationsView: View {
                 }
                 .padding(.horizontal)
 
-                Button(action: { Task { await onTestStoryGeneration() } }) {
+                Button(action: { Task { await onTestStoryGeneration(numKeyframes, useMotion, shouldUpload) } }) {
                     HStack {
                         if isGeneratingStory {
                             ProgressView()
                                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
                         } else {
                             Image(systemName: "wand.and.stars")
-                            Text(isFullBuild ? "Generate Story with Motion" : "Generate Story (Static)")
+                            Text(useMotion ? "Generate Story (Motion)" : "Generate Story (Static)")
+                            Text(shouldUpload ? "(Upload)" : "(Save)")
+                                .font(.caption)
+                                .opacity(0.8)
                         }
                     }
                     .frame(maxWidth: .infinity)

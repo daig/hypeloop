@@ -50,8 +50,12 @@ struct ContentView: View {
                             HomeTabView(videoManager: videoManager)
                         case 1:
                             SavedVideosTabView(videoManager: videoManager)
-                        default:
+                        case 2:
+                            IncubatingStoriesTabView()
+                        case 3:
                             CreateTabView()
+                        default:
+                            HomeTabView(videoManager: videoManager)
                         }
                     } .animation(.easeInOut, value: selectedTab)
                     
