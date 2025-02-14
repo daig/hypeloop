@@ -948,14 +948,16 @@ struct CreateTabView: View {
                         if let playbackId = motionVideosByScene[asset.sceneNumber] {
                             print("🎥 Found motion video playback ID: \(playbackId) for scene \(asset.sceneNumber)")
                             
-                            // Use the same Mux URL format as in SavedVideosTabView
-                            let muxURL = URL(string: "https://stream.mux.com/\(playbackId)/capped-1080p.mp4")!
-                            print("📥 Downloading motion video from: \(muxURL)")
+                            // Download the motion video to local storage first
+                            let tempDir = FileManager.default.temporaryDirectory
+                            let localVideoURL = tempDir.appendingPathComponent("motion_video_\(asset.sceneNumber).mp4")
                             
-                            let (videoData, _) = try await URLSession.shared.data(from: muxURL)
-                            videoURL = tempDir.appendingPathComponent("video_\(asset.sceneNumber).mp4")
-                            try videoData.write(to: videoURL)
-                            print("✅ Downloaded motion video for scene \(asset.sceneNumber)")
+                            print("📥 Downloading motion video to: \(localVideoURL)")
+                            let (downloadedData, _) = try await URLSession.shared.data(from: URL(string: playbackId)!)
+                            try downloadedData.write(to: localVideoURL)
+                            
+                            videoURL = localVideoURL
+                            print("✅ Downloaded and saved motion video for scene \(asset.sceneNumber)")
                         } else {
                             print("⚠️ Motion video not found for scene \(asset.sceneNumber)")
                             print("   Checked dictionary key: \(asset.sceneNumber)")
