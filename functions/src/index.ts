@@ -342,6 +342,12 @@ export const leonardoWebhook = onRequest(
         return;
       }
 
+      // Add detailed payload logging
+      logger.info("Leonardo webhook full payload:", {
+        body: JSON.stringify(req.body, null, 2),
+        timestamp: new Date().toISOString()
+      });
+
       const event = req.body;
       logger.info("Received Leonardo webhook", { 
         type: event.type,
@@ -452,12 +458,25 @@ export const leonardoWebhook = onRequest(
         }
       }
 
-      // Handle motion generation completion
-      if (event.type === 'motion_generation.complete') {
+      // Handle motion video generation completion
+      if (event.type === 'video_generation.complete') {
         const generation = event.data.object;
         const generationId = generation.id;
         const status = generation.status;
-        const images = generation.images;
+        const isMotionVideo = generation.imageToVideo === true;
+        
+        logger.info("Processing video generation webhook", {
+          generationId,
+          status,
+          isMotionVideo,
+          hasImages: !!generation.images?.length
+        });
+
+        if (!isMotionVideo) {
+          logger.info("Skipping non-motion video generation", { generationId });
+          res.status(200).json({ message: 'Webhook processed' });
+          return;
+        }
 
         // Find the motion video record by generationId
         const motionQuery = await db.collection('motion_videos')
@@ -474,30 +493,49 @@ export const leonardoWebhook = onRequest(
         const motionDoc = motionQuery.docs[0];
         const motionData = motionDoc.data();
 
-        if (status === 'COMPLETE' && images?.length > 0 && images[0].motionMP4URL) {
-          // Update the motion video record with the URL and status
-          await motionDoc.ref.update({
-            status: 'complete',
-            url: images[0].motionMP4URL,
-            updated_at: new Date().toISOString()
-          });
+        if (status === 'COMPLETE' && generation.images?.length > 0) {
+          const motionMP4URL = generation.images[0].motionMP4URL;
 
-          logger.info("Updated motion video status to complete", {
-            motionId: motionDoc.id,
-            imageId: motionData.imageId,
-            storyId: motionData.storyId,
-            sceneNumber: motionData.sceneNumber,
-            url: images[0].motionMP4URL
-          });
+          if (motionMP4URL) {
+            // Update the motion video record with the URL and status
+            await motionDoc.ref.update({
+              status: 'ready',
+              url: motionMP4URL,
+              playbackId: motionMP4URL,
+              updated_at: new Date().toISOString()
+            });
+
+            logger.info("Updated motion video status to ready", {
+              motionId: motionDoc.id,
+              imageId: motionData.imageId,
+              storyId: motionData.storyId,
+              sceneNumber: motionData.sceneNumber,
+              url: motionMP4URL
+            });
+          } else {
+            // Handle case where motion URL is missing
+            await motionDoc.ref.update({
+              status: 'error',
+              error: 'Video generation completed but no motion MP4 URL provided',
+              updated_at: new Date().toISOString()
+            });
+
+            logger.error("Motion video URL missing", {
+              motionId: motionDoc.id,
+              imageId: motionData.imageId,
+              storyId: motionData.storyId,
+              sceneNumber: motionData.sceneNumber
+            });
+          }
         } else {
           // Handle failed generation
           await motionDoc.ref.update({
             status: 'error',
-            error: `Generation failed with status: ${status}`,
+            error: `Video generation failed with status: ${status}`,
             updated_at: new Date().toISOString()
           });
 
-          logger.error("Motion generation failed", {
+          logger.error("Motion video generation failed", {
             motionId: motionDoc.id,
             imageId: motionData.imageId,
             storyId: motionData.storyId,

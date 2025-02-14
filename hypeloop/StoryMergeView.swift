@@ -5,8 +5,9 @@ struct StoryMergeView: View {
     @Binding var selectedStoryId: String?
     @Binding var isLoadingStoryAssets: Bool
     @Binding var storyMergeProgress: String
+    @State private var useMotion: Bool = true  // Default to true for motion files
     
-    let onMergeStoryAssets: () async -> Void
+    let onMergeStoryAssets: (Bool) async -> Void  // Updated to take useMotion parameter
     
     var body: some View {
         VStack(spacing: 12) {
@@ -41,10 +42,23 @@ struct StoryMergeView: View {
             }
             
             if selectedStoryId != nil && !isLoadingStoryAssets {
-                Button(action: { Task { await onMergeStoryAssets() } }) {
+                Toggle(isOn: $useMotion) {
+                    HStack {
+                        Image(systemName: useMotion ? "video.fill" : "photo.fill")
+                        Text(useMotion ? "Use Motion Videos" : "Use Static Images")
+                    }
+                    .foregroundColor(.white)
+                }
+                .tint(.blue)
+                .padding(.horizontal)
+                
+                Button(action: { Task { await onMergeStoryAssets(useMotion) } }) {
                     HStack {
                         Image(systemName: "arrow.triangle.merge")
                         Text("Merge Story")
+                        Text(useMotion ? "(Motion)" : "(Static)")
+                            .font(.caption)
+                            .opacity(0.8)
                     }
                     .frame(maxWidth: .infinity)
                     .padding()
