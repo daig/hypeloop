@@ -5,7 +5,7 @@ import Photos
 import AVFoundation
 import FirebaseFunctions
 
-struct IncubatingStory: Identifiable {
+struct IncubatingStory: Identifiable, Equatable {
     let id: String
     let creator: String
     let created_at: Double
@@ -13,163 +13,35 @@ struct IncubatingStory: Identifiable {
     let status: String
     let scenesRendered: Int
     let sceneCount: Int
+    
+    static func == (lhs: IncubatingStory, rhs: IncubatingStory) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.creator == rhs.creator &&
+        lhs.created_at == rhs.created_at &&
+        lhs.numKeyframes == rhs.numKeyframes &&
+        lhs.status == rhs.status &&
+        lhs.scenesRendered == rhs.scenesRendered &&
+        lhs.sceneCount == rhs.sceneCount
+    }
 }
 
-struct IncubatingStoriesTabView: View {
-    @StateObject private var authService = AuthService.shared
-    @State private var incubatingStories: [IncubatingStory] = []
-    @State private var isLoading = true
-    @State private var shimmerOffset: CGFloat = -200
-    @State private var isHatching = false
-    @State private var hatchingProgress: String = ""
-    @State private var isUploading = false
-    @State private var isOptimizing = false
-    @State private var uploadProgress: Double = 0
-    @State private var showAlert = false
-    @State private var alertMessage = ""
-    
-    private let db = Firestore.firestore()
-    
-    // Grid layout configuration
-    private let columns = [
-        GridItem(.flexible()),
-        GridItem(.flexible())
-    ]
+// Make IncubatingStory conform to GridDisplayable
+extension IncubatingStory: GridDisplayable {}
+
+// Dedicated card view for incubating stories
+struct IncubatingStoryCard: View {
+    let story: IncubatingStory
+    @Binding var showAlert: Bool
+    @Binding var alertMessage: String
+    @Binding var isHatching: Bool
+    @Binding var hatchingProgress: String
+    @Binding var isUploading: Bool
+    @Binding var isOptimizing: Bool
+    @Binding var uploadProgress: Double
+    let onDelete: (String) -> Void
+    let onHatch: (IncubatingStory, Bool) -> Void
     
     var body: some View {
-        NavigationView {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                
-                ScrollView {
-                    if incubatingStories.isEmpty && !isLoading {
-                        Text("No incubating stories")
-                            .foregroundColor(.gray)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .frame(minHeight: 200)
-                    } else {
-                        ZStack(alignment: .top) {
-                            loadingPlaceholderGrid
-                                .opacity(isLoading ? 1 : 0)
-                            
-                            incubatingStoriesGrid
-                                .opacity(isLoading ? 0 : 1)
-                        }
-                        .animation(.easeInOut(duration: 0.6), value: isLoading)
-                    }
-                }
-            }
-            .navigationTitle("Incubating")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarBackground(Color.black, for: .navigationBar)
-            .task {
-                await loadIncubatingStories()
-            }
-            .refreshable {
-                await loadIncubatingStories()
-            }
-        }
-    }
-    
-    private func loadIncubatingStories() async {
-        guard let userId = Auth.auth().currentUser?.uid else { return }
-        
-        isLoading = true
-        do {
-            // Simpler query that doesn't require a composite index
-            let snapshot = try await db.collection("stories")
-                .whereField("creator", isEqualTo: userId)
-                .whereField("status", isEqualTo: "incubating")
-                .getDocuments()
-            
-            let stories = snapshot.documents.compactMap { document -> IncubatingStory? in
-                let data = document.data()
-                return IncubatingStory(
-                    id: document.documentID,
-                    creator: data["creator"] as? String ?? "",
-                    created_at: Double(data["created_at"] as? Int ?? 0),
-                    numKeyframes: data["num_keyframes"] as? Int ?? 0,
-                    status: data["status"] as? String ?? "",
-                    scenesRendered: data["scenesRendered"] as? Int ?? 0,
-                    sceneCount: data["sceneCount"] as? Int ?? 0
-                )
-            }
-            
-            // Sort in memory
-            let sortedStories = stories.sorted { $0.created_at > $1.created_at }
-            
-            await MainActor.run {
-                incubatingStories = sortedStories
-                isLoading = false
-            }
-        } catch {
-            print("Error loading incubating stories: \(error.localizedDescription)")
-            isLoading = false
-        }
-    }
-    
-    private var loadingPlaceholderGrid: some View {
-        LazyVGrid(columns: columns, spacing: 12) {
-            ForEach(0..<6, id: \.self) { index in
-                placeholderCell
-                    .transition(.opacity.combined(with: .offset(y: 20)))
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .top)
-        .onAppear {
-            startShimmerAnimation()
-        }
-    }
-    
-    private func startShimmerAnimation() {
-        withAnimation(
-            .linear(duration: 1.5)
-            .repeatForever(autoreverses: false)
-        ) {
-            shimmerOffset = UIScreen.main.bounds.width
-        }
-    }
-    
-    private var placeholderCell: some View {
-        RoundedRectangle(cornerRadius: 12)
-            .fill(Color.gray.opacity(0.2))
-            .frame(width: (UIScreen.main.bounds.width - 36) / 2, height: 280)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(
-                        LinearGradient(
-                            gradient: Gradient(colors: [
-                                Color.white.opacity(0),
-                                Color.white.opacity(0.2),
-                                Color.white.opacity(0)
-                            ]),
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .offset(x: shimmerOffset)
-                    .mask(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.white)
-                    )
-            )
-    }
-    
-    private var incubatingStoriesGrid: some View {
-        LazyVGrid(columns: columns, spacing: 12) {
-            ForEach(incubatingStories) { story in
-                incubatingStoryCell(for: story)
-                    .transition(.opacity.combined(with: .offset(y: 20)))
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .top)
-    }
-    
-    private func incubatingStoryCell(for story: IncubatingStory) -> some View {
         ZStack(alignment: .bottom) {
             // Egg background with gradient
             RoundedRectangle(cornerRadius: 12)
@@ -245,26 +117,20 @@ struct IncubatingStoriesTabView: View {
         .contextMenu {
             if story.scenesRendered >= story.sceneCount {
                 Button {
-                    Task {
-                        await hatchStory(story, shouldUpload: true)
-                    }
+                    onHatch(story, true)
                 } label: {
                     Label("Hatch & Upload", systemImage: "icloud.and.arrow.up")
                 }
                 
                 Button {
-                    Task {
-                        await hatchStory(story, shouldUpload: false)
-                    }
+                    onHatch(story, false)
                 } label: {
                     Label("Hatch & Save", systemImage: "square.and.arrow.down")
                 }
             }
             
             Button(role: .destructive) {
-                Task {
-                    await deleteStory(story.id)
-                }
+                onDelete(story.id)
             } label: {
                 Label("Delete", systemImage: "trash")
             }
@@ -287,6 +153,111 @@ struct IncubatingStoriesTabView: View {
         default:
             let days = Int(elapsed / 86400)
             return "\(days)d ago"
+        }
+    }
+}
+
+struct IncubatingStoriesTabView: View {
+    @StateObject private var authService = AuthService.shared
+    @State private var incubatingStories: [IncubatingStory] = []
+    @State private var isLoading = true
+    @State private var isHatching = false
+    @State private var hatchingProgress: String = ""
+    @State private var isUploading = false
+    @State private var isOptimizing = false
+    @State private var uploadProgress: Double = 0
+    @State private var showAlert = false
+    @State private var alertMessage = ""
+    
+    private let db = Firestore.firestore()
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                ScrollView {
+                    ContentGridView(
+                        items: incubatingStories,
+                        isLoading: isLoading,
+                        isLoadingMore: false,
+                        hasMoreContent: false,
+                        showAlert: $showAlert,
+                        alertMessage: $alertMessage,
+                        onLoadMore: {},
+                        cardBuilder: { story in
+                            IncubatingStoryCard(
+                                story: story,
+                                showAlert: $showAlert,
+                                alertMessage: $alertMessage,
+                                isHatching: $isHatching,
+                                hatchingProgress: $hatchingProgress,
+                                isUploading: $isUploading,
+                                isOptimizing: $isOptimizing,
+                                uploadProgress: $uploadProgress,
+                                onDelete: { storyId in
+                                    Task {
+                                        await deleteStory(storyId)
+                                    }
+                                },
+                                onHatch: { story, shouldUpload in
+                                    Task {
+                                        await hatchStory(story, shouldUpload: shouldUpload)
+                                    }
+                                }
+                            )
+                        }
+                    )
+                }
+            }
+            .navigationTitle("Incubating")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color.black, for: .navigationBar)
+            .task {
+                await loadIncubatingStories()
+            }
+            .refreshable {
+                await loadIncubatingStories()
+            }
+        }
+    }
+    
+    private func loadIncubatingStories() async {
+        guard let userId = Auth.auth().currentUser?.uid else { return }
+        
+        isLoading = true
+        do {
+            // Simpler query that doesn't require a composite index
+            let snapshot = try await db.collection("stories")
+                .whereField("creator", isEqualTo: userId)
+                .whereField("status", isEqualTo: "incubating")
+                .getDocuments()
+            
+            let stories = snapshot.documents.compactMap { document -> IncubatingStory? in
+                let data = document.data()
+                return IncubatingStory(
+                    id: document.documentID,
+                    creator: data["creator"] as? String ?? "",
+                    created_at: Double(data["created_at"] as? Int ?? 0),
+                    numKeyframes: data["num_keyframes"] as? Int ?? 0,
+                    status: data["status"] as? String ?? "",
+                    scenesRendered: data["scenesRendered"] as? Int ?? 0,
+                    sceneCount: data["sceneCount"] as? Int ?? 0
+                )
+            }
+            
+            // Sort in memory
+            let sortedStories = stories.sorted { $0.created_at > $1.created_at }
+            
+            await MainActor.run {
+                incubatingStories = sortedStories
+                isLoading = false
+            }
+        } catch {
+            print("Error loading incubating stories: \(error.localizedDescription)")
+            isLoading = false
         }
     }
     
